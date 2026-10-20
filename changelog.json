@@ -1,5 +1,9 @@
 {
   "releases": {
+    "3.6.8-beta3": [
+      "[New] Connect to an SSH host and manage its Git repositories alongside local ones",
+      "[Added] Open an SSH repository in the terminal and edit its remote .gitignore"
+    ],
     "3.6.8-beta2": [
       "[Added] Add syntax highlighting for Svelte files - #22969. Thanks @Klaynight-dev!",
       "[Fixed] Flag worktrees whose folder is missing with a clear warning and offer to remove them instead of failing with a raw git error when switching branches or worktrees - #22607. Thanks @francisrath!",

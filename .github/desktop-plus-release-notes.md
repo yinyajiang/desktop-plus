@@ -1,16 +1,15 @@
-Desktop Plus v3.6.8-beta2
-
-Upstream:
-- [GitHub Desktop 3.6.8-beta1 release notes](https://github.com/desktop/desktop/releases/tag/release-3.6.8-beta1)
-- [GitHub Desktop 3.6.8-beta2 release notes](https://github.com/desktop/desktop/releases/tag/release-3.6.8-beta2)
+Desktop Plus v3.6.8-beta3
 
 ## Changes and improvements:
 
-- [#289] You can now snooze repositories to temporarily hide them from the repository list and prevent background syncing.  
-  To snooze a repository, right-click on it in the repository list and select "Snooze...". Pick the date and time you want to snooze the repository until (for example, while you are on vacation).
+- Connect to an SSH host and add a Git repository that lives on that machine. Type `user@host`, and a port or identity file only when you need them. Desktop does not read `~/.ssh/config` to offer a list of hosts. The system OpenSSH client still uses your keys, agent, and `known_hosts`.
 
-## Fixes:
+- The repository list marks the repository with an SSH badge. Status, diff, commit, checkout, creating a branch, push, and pull run Git on that host. In-progress merges, rebases, and cherry-picks are read from the remote repository.
 
-- [#296] **Windows**: Bitbucket login for some users should no longer fail on Windows.
+- Open the remote repository in your terminal. Ignore files and edit `.gitignore` on the host. A symbolic link is not followed.
 
-- [#294] [#295] Fixed minor UI styling issues.
+## Known limitations:
+
+- Reveal in Finder or Explorer and external editors stay unavailable. They need a local working copy.
+- Push and pull use the credentials configured on the remote machine.
+- Warp, Hyper, Tabby, Black Box, and COSMIC Terminal cannot be given the SSH command. Choose another shell in Options.
