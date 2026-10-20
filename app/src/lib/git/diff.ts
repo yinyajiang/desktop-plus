@@ -507,7 +507,12 @@ export async function getResolutionDiff(
       tempTarget,
     ]
 
-    const { stdout } = await git(args, repository.path, 'getResolutionDiff', {
+    // `--no-index` only touches the two local temp files written above, so
+    // it must run on this machine. An SSH repository would send the command
+    // to the host, where these paths do not exist.
+    const diffPath =
+      repository.sshRemote === null ? repository.path : process.cwd()
+    const { stdout } = await git(args, diffPath, 'getResolutionDiff', {
       successExitCodes: new Set([0, 1]),
       encoding: 'buffer',
     })
