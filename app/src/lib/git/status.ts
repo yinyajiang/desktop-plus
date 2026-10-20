@@ -27,6 +27,7 @@ import { getBinaryPaths } from './diff'
 import { getRebaseInternalState } from './rebase'
 import { RebaseInternalState } from '../../models/rebase'
 import { isCherryPickHeadFound } from './cherry-pick'
+import { readSshOperationState } from './ssh-operation-state'
 import { git } from '.'
 
 /** The encapsulation of the result from 'git status' */
@@ -234,11 +235,19 @@ export async function getStatus(
   const headers = parsed.filter(isStatusHeader)
   const entries = parsed.filter(isStatusEntry)
 
-  const mergeHeadFound = await isMergeHeadSet(repository)
+  const operationState = repository.sshRemote
+    ? await readSshOperationState(repository)
+    : null
+
+  const mergeHeadFound = operationState
+    ? operationState.mergeHeadFound
+    : await isMergeHeadSet(repository)
   const conflictedFilesInIndex = entries.filter(e =>
     conflictStatusCodes.includes(e.statusCode)
   )
-  const rebaseInternalState = await getRebaseInternalState(repository)
+  const rebaseInternalState = operationState
+    ? operationState.rebaseInternalState
+    : await getRebaseInternalState(repository)
 
   const conflictDetails = await getConflictDetails(
     repository,
@@ -268,9 +277,13 @@ export async function getStatus(
 
   const workingDirectory = WorkingDirectoryStatus.fromFiles([...files.values()])
 
-  const isCherryPickingHeadFound = await isCherryPickHeadFound(repository)
+  const isCherryPickingHeadFound = operationState
+    ? operationState.isCherryPickingHeadFound
+    : await isCherryPickHeadFound(repository)
 
-  const squashMsgFound = await isSquashMsgSet(repository)
+  const squashMsgFound = operationState
+    ? operationState.squashMsgFound
+    : await isSquashMsgSet(repository)
 
   return {
     currentBranch,

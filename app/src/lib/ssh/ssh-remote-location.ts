@@ -163,6 +163,205 @@ export function normalizeRemotePath(path: string): string {
   return normalized
 }
 
+/** Join segments onto a remote POSIX path. */
+export function joinRemotePath(base: string, ...segments: string[]): string {
+  return normalizeRemotePath(posix.join(base, ...segments))
+}
+
+/**
+ * Join a working-tree-relative path onto `root` and reject anything that
+ * leaves the tree. Git status paths are relative; this stops a crafted path
+ * from addressing another directory on the host.
+ */
+export function resolveRemoteWorkingTreeFile(
+  root: string,
+  relativePath: string
+): string | null {
+  if (
+    relativePath.length === 0 ||
+    relativePath.includes('\0') ||
+    posix.isAbsolute(relativePath)
+  ) {
+    return null
+  }
+
+  const rootNorm = normalizeRemotePath(root)
+  if (!rootNorm.startsWith('/')) {
+    return null
+  }
+
+  const absolute = normalizeRemotePath(posix.join(rootNorm, relativePath))
+  const prefix = `${rootNorm}/`
+  if (!absolute.startsWith(prefix)) {
+    return null
+  }
+
+  return absolute
+}
+
+/**
+ * Relative path under a remote git directory. Callers pass fixed names such
+ * as `MERGE_HEAD` or `rebase-merge/orig-head`, never a working-tree path.
+ */
+export function assertSafeGitMetadataRelativePath(relative: string): void {
+  const safe =
+    /^[A-Za-z0-9._/-]+$/.test(relative) &&
+    !relative.startsWith('/') &&
+    relative
+      .split('/')
+      .every(part => part !== '' && part !== '.' && part !== '..')
+
+  if (!safe) {
+    throw new Error(`Unsafe git metadata path: ${relative}`)
+  }
+}
+
+export function buildRemoteExistenceCommand(absolutePath: string): string {
+  return `test -e ${shellQuote(absolutePath)}`
+}
+
+export function buildRemoteCatCommand(absolutePath: string): string {
+  return `cat ${shellQuote(absolutePath)}`
+}
+
+/**
+ * Read at most `maxBytes` from the start of a remote file.
+ *
+ * `bs` plus `count=1` is supported by both GNU and BSD `dd`, and it does not
+ * pull the rest of a large file one byte at a time.
+ */
+export function buildRemotePrefixReadCommand(
+  absolutePath: string,
+  maxBytes: number
+): string {
+  if (!Number.isInteger(maxBytes) || maxBytes < 1) {
+    throw new Error('maxBytes must be a positive integer')
+  }
+
+  return `dd if=${shellQuote(absolutePath)} bs=${String(maxBytes)} count=1`
+}
+
+/**
+ * Print `size mtimeSeconds`. GNU `stat` is tried first; BSD `stat` is the
+ * fallback. A missing file makes both fail.
+ */
+export function buildRemoteStatCommand(absolutePath: string): string {
+  const quoted = shellQuote(absolutePath)
+  return `stat -c '%s %Y' ${quoted} 2>/dev/null || stat -f '%z %m' ${quoted}`
+}
+
+export function parseRemoteStat(
+  stdout: string
+): { size: number; mtimeSeconds: number } | null {
+  const match = /^(\d+) (\d+)\s*$/.exec(stdout.trim())
+  if (match === null) {
+    return null
+  }
+
+  const size = Number(match[1])
+  const mtimeSeconds = Number(match[2])
+  if (!Number.isSafeInteger(size) || !Number.isSafeInteger(mtimeSeconds)) {
+    return null
+  }
+
+  return { size, mtimeSeconds }
+}
+
+/** Delete one working-tree file. `rm -f` does not remove directories. */
+export function buildRemoteRemoveFileCommand(absolutePath: string): string {
+  return `rm -f -- ${shellQuote(absolutePath)}`
+}
+
+export class RemoteFileBundleError extends Error {
+  public constructor(message: string) {
+    super(message)
+    this.name = 'RemoteFileBundleError'
+  }
+}
+
+/**
+ * One POSIX command that prints each relative file under `directory`.
+ *
+ * A missing file is `path -`. A present file is `path <byte length>`, then
+ * exactly that many bytes, then a newline. The length is in bytes so file
+ * contents cannot be mistaken for the next header.
+ */
+export function buildRemoteFileBundleCommand(
+  directory: string,
+  relativeFiles: readonly string[]
+): string {
+  if (relativeFiles.length === 0) {
+    throw new Error('No remote files to read')
+  }
+
+  return relativeFiles
+    .map(relative => {
+      assertSafeGitMetadataRelativePath(relative)
+      const absolute = shellQuote(joinRemotePath(directory, relative))
+      const id = shellQuote(relative)
+      return `if test -f ${absolute}; then printf '%s ' ${id}; wc -c < ${absolute} | tr -d '[:space:]'; printf '\\n'; cat ${absolute}; printf '\\n'; else printf '%s -\\n' ${id}; fi`
+    })
+    .join('; ')
+}
+
+export function parseRemoteFileBundle(
+  stdout: Buffer,
+  relativeFiles: readonly string[]
+): Map<string, Buffer | null> {
+  const parsed = new Map<string, Buffer | null>()
+  let offset = 0
+
+  for (const relative of relativeFiles) {
+    const newline = stdout.indexOf(0x0a, offset)
+    if (newline < 0) {
+      throw new RemoteFileBundleError(
+        `Truncated remote file bundle header for ${relative}`
+      )
+    }
+
+    const header = stdout.subarray(offset, newline).toString('utf8')
+    if (header === `${relative} -`) {
+      parsed.set(relative, null)
+      offset = newline + 1
+      continue
+    }
+
+    const prefix = `${relative} `
+    if (
+      !header.startsWith(prefix) ||
+      !/^\d+$/.test(header.slice(prefix.length))
+    ) {
+      throw new RemoteFileBundleError(
+        `Unexpected remote file bundle header for ${relative}`
+      )
+    }
+
+    const size = Number(header.slice(prefix.length))
+    if (!Number.isSafeInteger(size)) {
+      throw new RemoteFileBundleError(
+        `Invalid remote file bundle size for ${relative}`
+      )
+    }
+
+    const start = newline + 1
+    const end = start + size
+    if (end >= stdout.length || stdout[end] !== 0x0a) {
+      throw new RemoteFileBundleError(
+        `Truncated remote file bundle body for ${relative}`
+      )
+    }
+
+    parsed.set(relative, Buffer.from(stdout.subarray(start, end)))
+    offset = end + 1
+  }
+
+  if (offset !== stdout.length) {
+    throw new RemoteFileBundleError('Remote file bundle has trailing data')
+  }
+
+  return parsed
+}
+
 /**
  * Build argv for the system `ssh` client.
  *

@@ -28,6 +28,7 @@ import { getTempFilePath } from '../file-system'
 import { forceUnwrap } from '../fatal-error'
 import { git } from './core'
 import { readSshWorkingTreeFile as readRemoteWorkingTreeFile } from '../ssh/ssh-remote-git'
+import { readWorkingTreeText } from './repository-files'
 import { NullTreeSHA } from './diff-index'
 import { GitError } from 'dugite'
 import { IChangesetData, parseRawLogWithNumstat } from './log'
@@ -461,10 +462,7 @@ export async function getResolutionDiff(
   // markers). This gives a consistent baseline for all three resolution
   // choices (Copilot, current, incoming) so the user sees exactly what each
   // option changes relative to the file's current state on disk.
-  const baseContent = await readFile(
-    Path.join(repository.path, filePath),
-    'utf8'
-  )
+  const baseContent = await readWorkingTreeText(repository, filePath)
   let targetContent: string
 
   if (gitStage === undefined) {

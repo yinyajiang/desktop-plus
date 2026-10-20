@@ -8,13 +8,22 @@ import { withSshAskpassEnv } from '../trampoline/trampoline-environment'
 import { deleteMostRecentSSHCredential } from './ssh-credential-storage'
 import {
   ISshRemoteLocation,
+  buildRemoteCatCommand,
+  buildRemoteExistenceCommand,
+  buildRemoteFileBundleCommand,
   buildRemoteGitCommand,
+  buildRemotePrefixReadCommand,
+  buildRemoteRemoveFileCommand,
+  buildRemoteStatCommand,
   buildSshArgs,
   formatSshRemoteLocation,
   normalizeRemotePath,
+  parseRemoteFileBundle,
+  parseRemoteStat,
   parseSshRemoteLocation,
   resolveRemoteGitDir,
   resolveRemotePath,
+  resolveRemoteWorkingTreeFile,
   shellQuote,
 } from './ssh-remote-location'
 
@@ -29,9 +38,8 @@ export class SshRemoteError extends Error {
  * Run Git on a repository that lives on an SSH host.
  *
  * TODO: intentional gaps are documented in docs/ssh-remote-repositories.md.
- * In particular, Desktop's credential helper and hook UI stay on this machine,
- * and merge/rebase/cherry-pick state is still detected from a local .git
- * directory.
+ * Desktop's credential helper and hook UI stay on this machine. Git metadata
+ * and working-tree bytes are read with the file helpers below.
  */
 
 export type SshRepositoryProbe =
@@ -195,17 +203,169 @@ export async function readSshWorkingTreeFile(
   virtualPath: string,
   relativePath: string
 ): Promise<Buffer> {
+  const location = requireSshLocation(virtualPath)
+  const absolute = requireWorkingTreeFile(location, relativePath)
+  return readSshAbsoluteFile(location, absolute)
+}
+
+export async function sshAbsoluteFileExists(
+  location: ISshRemoteLocation,
+  absolutePath: string
+): Promise<boolean> {
+  try {
+    const result = await execRemoteCommand(
+      location,
+      buildRemoteExistenceCommand(absolutePath)
+    )
+    return result.exitCode === 0
+  } catch (error) {
+    log.debug('SSH file check failed', error)
+    return false
+  }
+}
+
+export async function readSshTextFile(
+  location: ISshRemoteLocation,
+  absolutePath: string
+): Promise<string> {
+  const result = await execRemoteCommand(
+    location,
+    buildRemoteCatCommand(absolutePath)
+  )
+  if (result.exitCode !== 0 || typeof result.stdout !== 'string') {
+    throw new SshRemoteError(
+      sshFailureMessage(result.stderrText, result.exitCode)
+    )
+  }
+
+  return result.stdout
+}
+
+/** Read at most `maxBytes` from the start of an absolute remote file. */
+export async function readSshFilePrefix(
+  location: ISshRemoteLocation,
+  absolutePath: string,
+  maxBytes: number
+): Promise<Buffer> {
+  const result = await execRemoteCommand(
+    location,
+    buildRemotePrefixReadCommand(absolutePath, maxBytes),
+    { encoding: 'buffer' }
+  )
+  if (result.exitCode !== 0 || !Buffer.isBuffer(result.stdout)) {
+    throw new SshRemoteError(
+      sshFailureMessage(result.stderrText, result.exitCode)
+    )
+  }
+
+  if (result.stdout.length > maxBytes) {
+    return Buffer.from(result.stdout.subarray(0, maxBytes))
+  }
+
+  return result.stdout
+}
+
+/**
+ * `size` and `mtime` for an absolute remote file. Missing files and
+ * connection failures return null so callers can treat them like a local
+ * `stat` that threw.
+ */
+export async function statSshFile(
+  location: ISshRemoteLocation,
+  absolutePath: string
+): Promise<{ size: number; mtime: Date } | null> {
+  try {
+    const result = await execRemoteCommand(
+      location,
+      buildRemoteStatCommand(absolutePath)
+    )
+    if (result.exitCode !== 0 || typeof result.stdout !== 'string') {
+      return null
+    }
+
+    const parsed = parseRemoteStat(result.stdout)
+    if (parsed === null) {
+      return null
+    }
+
+    return {
+      size: parsed.size,
+      mtime: new Date(parsed.mtimeSeconds * 1000),
+    }
+  } catch (error) {
+    log.debug('SSH stat failed', error)
+    return null
+  }
+}
+
+export async function readSshFileBundle(
+  location: ISshRemoteLocation,
+  directory: string,
+  relativeFiles: readonly string[]
+): Promise<Map<string, Buffer | null>> {
+  const result = await execRemoteCommand(
+    location,
+    buildRemoteFileBundleCommand(directory, relativeFiles),
+    { encoding: 'buffer' }
+  )
+  if (result.exitCode !== 0 || !Buffer.isBuffer(result.stdout)) {
+    throw new SshRemoteError(
+      sshFailureMessage(result.stderrText, result.exitCode)
+    )
+  }
+
+  return parseRemoteFileBundle(result.stdout, relativeFiles)
+}
+
+/** Remove one file inside the remote working tree. Directories are left alone. */
+export async function removeSshWorkingTreeFile(
+  virtualPath: string,
+  relativePath: string
+): Promise<void> {
+  const location = requireSshLocation(virtualPath)
+  const absolute = requireWorkingTreeFile(location, relativePath)
+  const result = await execRemoteCommand(
+    location,
+    buildRemoteRemoveFileCommand(absolute)
+  )
+  if (result.exitCode !== 0) {
+    throw new SshRemoteError(
+      sshFailureMessage(result.stderrText, result.exitCode)
+    )
+  }
+}
+
+function requireSshLocation(virtualPath: string): ISshRemoteLocation {
   const location = parseSshRemoteLocation(virtualPath)
   if (!location) {
     throw new SshRemoteError('Not an SSH repository')
   }
 
-  const absolute = posix.isAbsolute(relativePath)
-    ? relativePath
-    : posix.join(location.remotePath, relativePath)
+  return location
+}
+
+function requireWorkingTreeFile(
+  location: ISshRemoteLocation,
+  relativePath: string
+): string {
+  const absolute = resolveRemoteWorkingTreeFile(
+    location.remotePath,
+    relativePath
+  )
+  if (absolute === null) {
+    throw new SshRemoteError('The file path is outside the remote repository.')
+  }
+
+  return absolute
+}
+
+async function readSshAbsoluteFile(
+  location: ISshRemoteLocation,
+  absolutePath: string
+): Promise<Buffer> {
   const result = await execRemoteCommand(
     location,
-    `cat ${shellQuote(absolute)}`,
+    buildRemoteCatCommand(absolutePath),
     { encoding: 'buffer' }
   )
   if (result.exitCode !== 0 || !Buffer.isBuffer(result.stdout)) {

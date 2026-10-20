@@ -28,9 +28,8 @@ import { stageFiles } from './update-index'
 import { getStatus } from './status'
 import { getCommitsBetweenCommits } from './rev-list'
 import { Branch } from '../../models/branch'
-import { join } from 'path'
-import { readFile } from 'fs/promises'
-import { pathExists } from '../path-exists'
+import { gitMetadataExists, readGitMetadata } from './repository-files'
+import { rebaseInternalStateFromFiles } from './rebase-progress'
 
 /** The app-specific results from attempting to rebase a repository */
 export enum RebaseResult {
@@ -73,8 +72,7 @@ export enum RebaseResult {
  * a rebase operation is underway.
  */
 function isRebaseHeadSet(repository: Repository) {
-  const path = join(repository.resolvedGitDir, 'REBASE_HEAD')
-  return pathExists(path)
+  return gitMetadataExists(repository, 'REBASE_HEAD')
 }
 
 /**
@@ -94,46 +92,32 @@ export async function getRebaseInternalState(
     return null
   }
 
-  let originalBranchTip: string | null = null
-  let targetBranch: string | null = null
-  let baseBranchTip: string | null = null
-
   try {
-    originalBranchTip = await readFile(
-      join(repository.resolvedGitDir, 'rebase-merge', 'orig-head'),
-      'utf8'
+    const originalBranchTip = await readGitMetadata(
+      repository,
+      'rebase-merge',
+      'orig-head'
     )
-
-    originalBranchTip = originalBranchTip.trim()
-
-    targetBranch = await readFile(
-      join(repository.resolvedGitDir, 'rebase-merge', 'head-name'),
-      'utf8'
+    const targetBranch = await readGitMetadata(
+      repository,
+      'rebase-merge',
+      'head-name'
     )
-
-    if (targetBranch.startsWith('refs/heads/')) {
-      targetBranch = targetBranch.substring(11).trim()
-    }
-
-    baseBranchTip = await readFile(
-      join(repository.resolvedGitDir, 'rebase-merge', 'onto'),
-      'utf8'
+    const baseBranchTip = await readGitMetadata(
+      repository,
+      'rebase-merge',
+      'onto'
     )
-
-    baseBranchTip = baseBranchTip.trim()
-  } catch {}
-
-  if (
-    originalBranchTip != null &&
-    targetBranch != null &&
-    baseBranchTip != null
-  ) {
-    return { originalBranchTip, targetBranch, baseBranchTip }
+    return rebaseInternalStateFromFiles(
+      'set',
+      originalBranchTip,
+      targetBranch,
+      baseBranchTip
+    )
+  } catch {
+    // unable to resolve the rebase state of this repository
+    return null
   }
-
-  // unable to resolve the rebase state of this repository
-
-  return null
 }
 
 /**
@@ -167,10 +151,7 @@ export async function getRebaseSnapshot(repository: Repository): Promise<{
 
   try {
     // this contains the patch number that was recently applied to the repository
-    const nextText = await readFile(
-      join(repository.resolvedGitDir, 'rebase-merge', 'msgnum'),
-      'utf8'
-    )
+    const nextText = await readGitMetadata(repository, 'rebase-merge', 'msgnum')
 
     next = parseInt(nextText, 10)
 
@@ -182,10 +163,7 @@ export async function getRebaseSnapshot(repository: Repository): Promise<{
     }
 
     // this contains the total number of patches to be applied to the repository
-    const lastText = await readFile(
-      join(repository.resolvedGitDir, 'rebase-merge', 'end'),
-      'utf8'
-    )
+    const lastText = await readGitMetadata(repository, 'rebase-merge', 'end')
 
     last = parseInt(lastText, 10)
 
@@ -196,17 +174,15 @@ export async function getRebaseSnapshot(repository: Repository): Promise<{
       last = -1
     }
 
-    originalBranchTip = await readFile(
-      join(repository.resolvedGitDir, 'rebase-merge', 'orig-head'),
-      'utf8'
+    originalBranchTip = await readGitMetadata(
+      repository,
+      'rebase-merge',
+      'orig-head'
     )
 
     originalBranchTip = originalBranchTip.trim()
 
-    baseBranchTip = await readFile(
-      join(repository.resolvedGitDir, 'rebase-merge', 'onto'),
-      'utf8'
-    )
+    baseBranchTip = await readGitMetadata(repository, 'rebase-merge', 'onto')
 
     baseBranchTip = baseBranchTip.trim()
   } catch {}
@@ -263,8 +239,10 @@ export async function getRebaseSnapshot(repository: Repository): Promise<{
  */
 async function readRebaseHead(repository: Repository): Promise<string | null> {
   try {
-    const rebaseHead = join(repository.resolvedGitDir, 'REBASE_HEAD')
-    const rebaseCurrentCommitOutput = await readFile(rebaseHead, 'utf8')
+    const rebaseCurrentCommitOutput = await readGitMetadata(
+      repository,
+      'REBASE_HEAD'
+    )
     return rebaseCurrentCommitOutput.trim()
   } catch (err) {
     log.warn(

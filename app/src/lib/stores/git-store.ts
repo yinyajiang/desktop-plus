@@ -100,7 +100,9 @@ import { IStatsStore } from '../stats'
 import { getTagsToPush, storeTagsToPush } from './helpers/tags-to-push-storage'
 import { DiffSelection, ITextDiff } from '../../models/diff'
 import { getDefaultBranch } from '../helpers/default-branch'
-import { rm, stat } from 'fs/promises'
+import { rm } from 'fs/promises'
+import { statGitMetadata } from '../git/repository-files'
+import { removeSshWorkingTreeFile } from '../ssh/ssh-remote-git'
 import { findForkedRemotesToPrune } from './helpers/find-forked-remotes-to-prune'
 import { findDefaultBranch } from '../find-default-branch'
 import { cleanUntrackedFiles } from '../git/clean'
@@ -1635,22 +1637,13 @@ export class GitStore extends BaseStore {
 
   /** Update the last fetched date. */
   public async updateLastFetched() {
-    const fetchHeadPath = Path.join(
-      this.repository.resolvedGitDir,
-      'FETCH_HEAD'
-    )
-
-    try {
-      const fstat = await stat(fetchHeadPath)
-
-      // If the file's empty then it _probably_ means the fetch failed and we
-      // shouldn't update the last fetched date.
-      if (fstat.size > 0) {
-        this._lastFetched = fstat.mtime
-      }
-    } catch {
-      // An error most likely means the repository's never been published.
+    // A missing file means the repository has never been published. An empty
+    // file probably means the fetch failed, so keep the previous date.
+    const fstat = await statGitMetadata(this.repository, 'FETCH_HEAD')
+    if (fstat === null) {
       this._lastFetched = null
+    } else if (fstat.size > 0) {
+      this._lastFetched = fstat.mtime
     }
 
     this.emitUpdate()
@@ -1758,7 +1751,20 @@ export class GitStore extends BaseStore {
     for (const file of files) {
       const foundSubmodule = submodules.some(s => s.path === file.path)
 
-      if (file.status.kind !== AppFileStatusKind.Deleted && !foundSubmodule) {
+      if (this.repository.sshRemote) {
+        // There is no local working tree to move to the trash. Untracked
+        // files are removed on the host; tracked files are restored by the
+        // git checkout below.
+        if (
+          file.status.kind === AppFileStatusKind.Untracked &&
+          !foundSubmodule
+        ) {
+          await removeSshWorkingTreeFile(this.repository.path, file.path)
+        }
+      } else if (
+        file.status.kind !== AppFileStatusKind.Deleted &&
+        !foundSubmodule
+      ) {
         if (moveToTrash) {
           try {
             await this.shell.moveItemToTrash(

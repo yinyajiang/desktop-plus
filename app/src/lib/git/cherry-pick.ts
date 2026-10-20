@@ -23,9 +23,7 @@ import { ManualConflictResolution } from '../../models/manual-conflict-resolutio
 import { stageManualConflictResolution } from './stage'
 import { getCommit } from '.'
 import { IMultiCommitOperationProgress } from '../../models/progress'
-import { join } from 'path'
-import { readFile } from 'fs/promises'
-import { pathExists } from '../path-exists'
+import { gitMetadataExists, readGitMetadata } from './repository-files'
 
 /** The app-specific results from attempting to cherry pick commits*/
 export enum CherryPickResult {
@@ -216,7 +214,7 @@ function parseCherryPickResult(result: IGitResult): CherryPickResult {
 export async function getCherryPickSnapshot(
   repository: Repository
 ): Promise<ICherryPickSnapshot | null> {
-  if (!isCherryPickHeadFound(repository)) {
+  if (!(await isCherryPickHeadFound(repository))) {
     // If there no cherry pick head, there is no cherry pick in progress.
     return null
   }
@@ -240,10 +238,7 @@ export async function getCherryPickSnapshot(
   // or aborted at the same time.
   try {
     abortSafetySha = (
-      await readFile(
-        join(repository.resolvedGitDir, 'sequencer', 'abort-safety'),
-        'utf8'
-      )
+      await readGitMetadata(repository, 'sequencer', 'abort-safety')
     ).trim()
 
     if (abortSafetySha === '') {
@@ -252,12 +247,7 @@ export async function getCherryPickSnapshot(
       return null
     }
 
-    headSha = (
-      await readFile(
-        join(repository.resolvedGitDir, 'sequencer', 'head'),
-        'utf8'
-      )
-    ).trim()
+    headSha = (await readGitMetadata(repository, 'sequencer', 'head')).trim()
 
     if (headSha === '') {
       // Technically possible if someone continued or aborted the cherry pick at
@@ -266,10 +256,7 @@ export async function getCherryPickSnapshot(
     }
 
     const remainingPicks = (
-      await readFile(
-        join(repository.resolvedGitDir, 'sequencer', 'todo'),
-        'utf8'
-      )
+      await readGitMetadata(repository, 'sequencer', 'todo')
     ).trim()
 
     if (remainingPicks === '') {
@@ -298,7 +285,7 @@ export async function getCherryPickSnapshot(
   } catch {
     // could not parse sequencer files
 
-    if (!isCherryPickHeadFound(repository)) {
+    if (!(await isCherryPickHeadFound(repository))) {
       // We redo this check just because a user technically could end the
       // cherry-pick by the time we got here.
       return null
@@ -307,10 +294,7 @@ export async function getCherryPickSnapshot(
     // If cherry-pick is in progress, then there was only one commit cherry-picked
     // thus sequencer files were not used.
     const cherryPickHeadSha = (
-      await readFile(
-        join(repository.resolvedGitDir, 'CHERRY_PICK_HEAD'),
-        'utf8'
-      )
+      await readGitMetadata(repository, 'CHERRY_PICK_HEAD')
     ).trim()
     const commit = await getCommit(repository, cherryPickHeadSha)
     if (commit === null) {
@@ -411,7 +395,7 @@ export async function continueCherryPick(
   }
 
   // make sure cherry pick is still in progress to continue
-  if (await !isCherryPickHeadFound(repository)) {
+  if (!(await isCherryPickHeadFound(repository))) {
     return CherryPickResult.UnableToStart
   }
 
@@ -487,7 +471,7 @@ export async function isCherryPickHeadFound(
   repository: Repository
 ): Promise<boolean> {
   try {
-    return pathExists(join(repository.resolvedGitDir, 'CHERRY_PICK_HEAD'))
+    return gitMetadataExists(repository, 'CHERRY_PICK_HEAD')
   } catch (err) {
     log.warn(
       `[cherryPick] a problem was encountered reading .git/CHERRY_PICK_HEAD,

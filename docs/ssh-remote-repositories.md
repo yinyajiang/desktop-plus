@@ -19,6 +19,15 @@ of hosts. The `ssh` process itself still uses your agent, keys, and
 The repository appears in the list with an SSH badge. Status, diff, commit,
 checkout, creating a branch, push, and pull run `git` on that host.
 
+In-progress merge, rebase, and cherry-pick state is read from the remote git
+directory (`MERGE_HEAD`, `rebase-merge`, `CHERRY_PICK_HEAD`, and the sequencer
+files). Status loads those markers in one SSH command. Syntax highlighting and
+diff expansion read the start of a working-tree file with remote `dd` (at most
+1 MiB). The conflict-resolution diff reads the remote working-tree file, and
+the last-fetched time comes from the remote `FETCH_HEAD` timestamp. Discarding
+an untracked file deletes it on the host; discarding a tracked change restores
+it with `git checkout`.
+
 ## Intentional gaps
 
 - Push and pull authenticate with the **remote host's** Git and SSH
@@ -32,14 +41,11 @@ checkout, creating a branch, push, and pull run `git` on that host.
 - Open in shell, Reveal in Finder/Explorer, and the external editor stay
   disabled. Those actions expect a local working tree.
 - Linked worktrees are not managed.
-- In-progress merge, rebase, and cherry-pick detection reads files under the
-  local `.git` directory, so those conflict flows are incomplete for SSH
-  repositories.
+- The repository gitignore editor and other features that open working-tree
+  files outside the diff view still use the local filesystem. External diff
+  tools do not see the remote files.
 - Desktop hook UI is not used. Hooks configured in the remote repository run
   on the host.
 - Git LFS progress and Desktop's credential helper are not forwarded.
 - On Windows the OpenSSH client is invoked without connection multiplexing, so
   a key that is not loaded in `ssh-agent` may prompt on each Git command.
-- Image diffs of the working tree are read with remote `cat`. Other features
-  that open working-tree files locally (for example external diff tools) do
-  not see the remote files.

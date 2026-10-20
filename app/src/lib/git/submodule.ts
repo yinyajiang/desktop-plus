@@ -12,6 +12,14 @@ import { IRemote } from '../../models/remote'
 import { Progress } from '../../models/progress'
 import { join, resolve } from 'path'
 import { readFile } from 'fs/promises'
+import {
+  gitMetadataExists,
+  readGitMetadata,
+  remoteGitDirectory,
+  workingTreeFileExists,
+} from './repository-files'
+import { sshAbsoluteFileExists } from '../ssh/ssh-remote-git'
+import { joinRemotePath, resolveRemotePath } from '../ssh/ssh-remote-location'
 
 /**
  * Update submodules after a git operation.
@@ -124,13 +132,37 @@ export async function updateSubmodulesAfterOperation<T extends Progress>(
   } as T)
 }
 
+async function readRemoteCommonDir(
+  repository: Repository
+): Promise<string | null> {
+  const gitDir = remoteGitDirectory(repository)
+  if (gitDir === null) {
+    return null
+  }
+
+  try {
+    const relative = (await readGitMetadata(repository, 'commondir')).replace(
+      /\r?\n$/,
+      ''
+    )
+    return relative ? resolveRemotePath(gitDir, relative) : null
+  } catch {
+    return null
+  }
+}
+
 export async function listSubmodules(
   repository: Repository
 ): Promise<ReadonlyArray<SubmoduleEntry>> {
-  const [submodulesFile, submodulesDir] = await Promise.all([
-    pathExists(join(repository.path, '.gitmodules')),
-    pathExists(join(repository.path, '.git', 'modules')),
-  ])
+  const [submodulesFile, submodulesDir] = repository.sshRemote
+    ? await Promise.all([
+        workingTreeFileExists(repository, '.gitmodules'),
+        gitMetadataExists(repository, 'modules'),
+      ])
+    : await Promise.all([
+        pathExists(join(repository.path, '.gitmodules')),
+        pathExists(join(repository.path, '.git', 'modules')),
+      ])
 
   if (!submodulesFile && !submodulesDir) {
     // repo path + .gitmodules and + .git/modules covers the vast majority of
@@ -140,13 +172,26 @@ export async function listSubmodules(
     // existence of submodules in this repo. We're reading the commondir file
     // ourselves here instead of calling out to git to avoid the cost of
     // spawning a process on Windows
-    const commonDirPath = join(repository.resolvedGitDir, 'commondir')
-    const commonDir = await readFile(commonDirPath, 'utf8')
-      .then(content => content.replace(/\r?\n$/, ''))
-      .then(p => (p ? resolve(repository.resolvedGitDir, p) : null))
-      .catch(() => null)
+    const commonDir = repository.sshRemote
+      ? await readRemoteCommonDir(repository)
+      : await readFile(join(repository.resolvedGitDir, 'commondir'), 'utf8')
+          .then(content => content.replace(/\r?\n$/, ''))
+          .then(p => (p ? resolve(repository.resolvedGitDir, p) : null))
+          .catch(() => null)
 
-    if (!commonDir || !(await pathExists(join(commonDir, 'modules')))) {
+    const modulesDirectory =
+      commonDir === null
+        ? null
+        : repository.sshRemote
+        ? joinRemotePath(commonDir, 'modules')
+        : join(commonDir, 'modules')
+    const modulesExist =
+      modulesDirectory !== null &&
+      (repository.sshRemote
+        ? await sshAbsoluteFileExists(repository.sshRemote, modulesDirectory)
+        : await pathExists(modulesDirectory))
+
+    if (!modulesExist) {
       log.info('No submodules found. Skipping "git submodule status"')
       return []
     }
