@@ -38,6 +38,7 @@ export enum PopupType {
   Preferences = 'Preferences',
   RepositorySettings = 'RepositorySettings',
   AddRepository = 'AddRepository',
+  ConnectToSSHHost = 'ConnectToSSHHost',
   CreateRepository = 'CreateRepository',
   CloneRepository = 'CloneRepository',
   CreateBranch = 'CreateBranch',
@@ -224,6 +225,7 @@ export type PopupDetail =
       initialSelectedTab?: RepositorySettingsTab
     }
   | { type: PopupType.AddRepository; path?: string }
+  | { type: PopupType.ConnectToSSHHost }
   | { type: PopupType.CreateRepository; path?: string }
   | {
       type: PopupType.CloneRepository

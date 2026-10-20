@@ -16,6 +16,7 @@ import {
 import { GitHubRepository } from '../../models/github-repository'
 import { getForgejoName } from '../../lib/forgejo-name'
 import { WorktreeEntry } from '../../models/worktree'
+import { formatSshRemoteLabel } from '../../lib/ssh/ssh-remote-location'
 
 interface IRepositoryListItemContextMenuConfig {
   repository: Repositoryish
@@ -58,8 +59,9 @@ export const generateRepositoryListContextMenu = (
     isRepositoryWithGitHubRepository(repository)
   const hasOriginUrl =
     repository instanceof Repository && hasDefaultRemoteUrl(repository)
+  const sshRemote = repository instanceof Repository && repository.sshRemote
   const canOpenInNewWindow =
-    repository instanceof Repository && !repository.missing
+    repository instanceof Repository && !repository.missing && !sshRemote
   const openInExternalEditor = config.externalEditorLabel
     ? `Open in ${config.externalEditorLabel}`
     : DefaultEditorLabel
@@ -78,7 +80,10 @@ export const generateRepositoryListContextMenu = (
     },
     {
       label: __DARWIN__ ? 'Copy Repo Path' : 'Copy repo path',
-      action: () => config.onCopyRepoPath(repository.path),
+      action: () =>
+        config.onCopyRepoPath(
+          sshRemote ? formatSshRemoteLabel(sshRemote) : repository.path
+        ),
     },
     { type: 'separator' },
     {
@@ -100,18 +105,18 @@ export const generateRepositoryListContextMenu = (
     {
       label: openInShell,
       action: () => config.onOpenInShell(repository, config.worktreePath),
-      enabled: !missing,
+      enabled: !missing && !sshRemote,
     },
     {
       label: RevealInFileManagerLabel,
       action: () => config.onShowRepository(repository, config.worktreePath),
-      enabled: !missing,
+      enabled: !missing && !sshRemote,
     },
     {
       label: openInExternalEditor,
       action: () =>
         config.onOpenInExternalEditor(repository, config.worktreePath),
-      enabled: !missing,
+      enabled: !missing && !sshRemote,
     },
     { type: 'separator' },
     ...(repository instanceof Repository
@@ -366,7 +371,8 @@ const buildWorktreeMenuItems = (
 ): ReadonlyArray<IMenuItem> => {
   const { repository, onCreateWorktree, onShowWorktrees } = config
 
-  if (!(repository instanceof Repository)) {
+  // TODO: linked worktrees on an SSH host are not managed yet.
+  if (!(repository instanceof Repository) || repository.sshRemote) {
     return []
   }
 

@@ -185,6 +185,7 @@ import { WarnResetToPushedCommit } from './reset/warn-reset-to-pushed-commit'
 import { InvalidatedToken } from './invalidated-token/invalidated-token'
 import { MultiCommitOperationKind } from '../models/multi-commit-operation'
 import { AddSSHHost } from './ssh/add-ssh-host'
+import { ConnectSSHHost } from './ssh-remote/connect-ssh-host'
 import { SSHKeyPassphrase } from './ssh/ssh-key-passphrase'
 import { getMultiCommitOperationChooseBranchStep } from '../lib/multi-commit-operation'
 import { ConfirmForcePush } from './rebase/confirm-force-push'
@@ -505,6 +506,8 @@ export class App extends React.Component<IAppProps, IAppState> {
         return this.chooseRepository()
       case 'add-local-repository':
         return this.showAddLocalRepo()
+      case 'connect-to-ssh-host':
+        return this.showConnectToSshHost()
       case 'create-branch':
         return this.showCreateBranch()
       case 'show-branches':
@@ -929,6 +932,10 @@ export class App extends React.Component<IAppProps, IAppState> {
 
   private showAddLocalRepo = () => {
     return this.props.dispatcher.showPopup({ type: PopupType.AddRepository })
+  }
+
+  private showConnectToSshHost = () => {
+    return this.props.dispatcher.showPopup({ type: PopupType.ConnectToSSHHost })
   }
 
   private showCreateRepository = () => {
@@ -2100,6 +2107,14 @@ export class App extends React.Component<IAppProps, IAppState> {
             onDismissed={onPopupDismissedFn}
             dispatcher={this.props.dispatcher}
             path={popup.path}
+          />
+        )
+      case PopupType.ConnectToSSHHost:
+        return (
+          <ConnectSSHHost
+            key="connect-ssh-host"
+            onDismissed={onPopupDismissedFn}
+            dispatcher={this.props.dispatcher}
           />
         )
       case PopupType.CreateRepository:

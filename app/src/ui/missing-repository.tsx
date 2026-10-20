@@ -10,6 +10,7 @@ import { LinkButton } from './lib/link-button'
 import { addSafeDirectory, getRepositoryType } from '../lib/git'
 import { Ref } from './lib/ref'
 import { Loading } from './lib/loading'
+import { formatSshRemoteLabel } from '../lib/ssh/ssh-remote-location'
 
 interface IMissingRepositoryProps {
   readonly dispatcher: Dispatcher
@@ -77,7 +78,9 @@ export class MissingRepository extends React.Component<
     const buttons = new Array<JSX.Element>()
     const { isPathUnsafe, unsafePath } = this.state
 
-    if (!isPathUnsafe) {
+    const sshRemote = this.props.repository.sshRemote
+
+    if (!isPathUnsafe && !sshRemote) {
       buttons.push(
         <Button key="locate" onClick={this.locate} type="submit">
           Locate…
@@ -91,7 +94,7 @@ export class MissingRepository extends React.Component<
           </Button>
         )
       }
-    } else {
+    } else if (isPathUnsafe && !sshRemote) {
       buttons.push(
         <Button
           key="trustDirectory"
@@ -119,15 +122,30 @@ export class MissingRepository extends React.Component<
               {this.props.repository.name} is potentially unsafe
             </div>
             <div className="details">
-              <p>
-                The Git repository at <Ref>{unsafePath}</Ref> appears to be
-                owned by another user on your machine. Adding untrusted
-                repositories may automatically execute files in the repository.
-              </p>
-              <p>
-                If you trust the owner of the directory you can add an exception
-                for this directory in order to continue.
-              </p>
+              {sshRemote ? (
+                <p>
+                  Git on the remote host rejected{' '}
+                  <Ref>{formatSshRemoteLabel(sshRemote)}</Ref> because of
+                  dubious ownership. On that host, run{' '}
+                  <Ref>
+                    git config --global --add safe.directory {unsafePath}
+                  </Ref>{' '}
+                  and then check again.
+                </p>
+              ) : (
+                <>
+                  <p>
+                    The Git repository at <Ref>{unsafePath}</Ref> appears to be
+                    owned by another user on your machine. Adding untrusted
+                    repositories may automatically execute files in the
+                    repository.
+                  </p>
+                  <p>
+                    If you trust the owner of the directory you can add an
+                    exception for this directory in order to continue.
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
@@ -141,8 +159,18 @@ export class MissingRepository extends React.Component<
         <div className="title-container">
           <div className="title">Can't find "{this.props.repository.name}"</div>
           <div className="details">
-            It was last seen at{' '}
-            <span className="path">{this.props.repository.path}</span>.{' '}
+            {sshRemote ? (
+              <>
+                It was last seen on{' '}
+                <span className="path">{formatSshRemoteLabel(sshRemote)}</span>.
+                The SSH host may be offline, or the remote path may have moved.{' '}
+              </>
+            ) : (
+              <>
+                It was last seen at{' '}
+                <span className="path">{this.props.repository.path}</span>.{' '}
+              </>
+            )}
             <LinkButton onClick={this.checkAgain}>Check&nbsp;again.</LinkButton>
           </div>
         </div>

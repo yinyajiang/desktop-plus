@@ -14,6 +14,10 @@ export function iconForRepository(repository: Repository | CloningRepository) {
     return octicons.alert
   }
 
+  if (repository instanceof Repository && repository.sshRemote) {
+    return octicons.server
+  }
+
   const gitHubRepo = repository.gitHubRepository
   if (!gitHubRepo) {
     return octicons.deviceDesktop

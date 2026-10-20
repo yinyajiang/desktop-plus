@@ -27,6 +27,7 @@ import { readFile, writeFile, unlink } from 'fs/promises'
 import { getTempFilePath } from '../file-system'
 import { forceUnwrap } from '../fatal-error'
 import { git } from './core'
+import { readSshWorkingTreeFile as readRemoteWorkingTreeFile } from '../ssh/ssh-remote-git'
 import { NullTreeSHA } from './diff-index'
 import { GitError } from 'dugite'
 import { IChangesetData, parseRawLogWithNumstat } from './log'
@@ -957,7 +958,9 @@ export async function getWorkingDirectoryImage(
   repository: Repository,
   file: FileChange
 ): Promise<Image> {
-  const contents = await readFile(Path.join(repository.path, file.path))
+  const contents = repository.sshRemote
+    ? await readRemoteWorkingTreeFile(repository.path, file.path)
+    : await readFile(Path.join(repository.path, file.path))
   return new Image(
     contents.buffer,
     contents.toString('base64'),

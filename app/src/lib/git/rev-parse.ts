@@ -2,6 +2,7 @@ import { git } from './core'
 import { directoryExists } from '../directory-exists'
 import { dirname, resolve } from 'path'
 import { realpath } from 'fs/promises'
+import { parseSshRemoteLocation } from '../ssh/ssh-remote-location'
 
 export type RepositoryType =
   | { kind: 'bare' }
@@ -18,6 +19,16 @@ export type RepositoryType =
  * path, verified against Git's ownership diagnostic.
  */
 export async function getRepositoryType(path: string): Promise<RepositoryType> {
+  if (parseSshRemoteLocation(path)) {
+    const { probeSshRepository } = await import('../ssh/ssh-remote-git')
+    const probe = await probeSshRepository(path)
+    if (probe.kind === 'missing') {
+      return { kind: 'missing' }
+    }
+
+    return probe
+  }
+
   if (!(await directoryExists(path))) {
     return { kind: 'missing' }
   }

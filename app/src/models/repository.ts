@@ -14,6 +14,10 @@ import { memoizedGetRemotesFromPath } from '../lib/git'
 import { findDefaultRemote } from '../lib/stores/helpers/find-default-remote'
 import { EditorOverride } from './editor-override'
 import { remoteUrlToWebUrl } from '../lib/remote-parsing'
+import {
+  ISshRemoteLocation,
+  parseSshRemoteLocation,
+} from '../lib/ssh/ssh-remote-location'
 
 export enum LoginSpecialValue {
   ForceNullLogin = 1,
@@ -34,6 +38,12 @@ function getBaseName(path: string): string {
 /** A local repository. */
 export class Repository {
   public readonly name: string
+
+  /**
+   * Set when this repository's working tree lives on an SSH host.
+   * `path` is then an app identifier, not a local directory.
+   */
+  public readonly sshRemote: ISshRemoteLocation | null
 
   /**
    * A hash of the properties of the object.
@@ -86,7 +96,10 @@ export class Repository {
      */
     public readonly mainWorktreePath: string | undefined = undefined
   ) {
-    this.name = (gitHubRepository && gitHubRepository.name) || getBaseName(path)
+    this.sshRemote = parseSshRemoteLocation(path)
+    this.name =
+      (gitHubRepository && gitHubRepository.name) ||
+      getBaseName(this.sshRemote?.remotePath ?? path)
 
     this.hash = createEqualityHash(
       path,
@@ -125,12 +138,16 @@ export class Repository {
 
   private fetchUrl(): void {
     // Get the URL of the default remote, if it exists.
-    memoizedGetRemotesFromPath(this.path).then(remotes => {
-      const defaultRemote = findDefaultRemote(remotes)
-      if (defaultRemote) {
-        this._url = defaultRemote.url
-      }
-    })
+    memoizedGetRemotesFromPath(this.path)
+      .then(remotes => {
+        const defaultRemote = findDefaultRemote(remotes)
+        if (defaultRemote) {
+          this._url = defaultRemote.url
+        }
+      })
+      .catch(error => {
+        log.debug(`Unable to read remotes for '${this.path}'`, error)
+      })
   }
 
   public get login(): string | null {

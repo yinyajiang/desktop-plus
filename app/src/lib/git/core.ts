@@ -17,6 +17,7 @@ import { kStringMaxLength } from 'buffer'
 import { withHooksEnv } from '../hooks/with-hooks-env'
 import { coerceToString } from './coerce-to-string'
 import { pushTerminalChunk } from './push-terminal-chunk'
+import { isSshRemotePath } from '../ssh/ssh-remote-location'
 
 export const isMaxBufferExceededError = (
   error: unknown
@@ -273,6 +274,14 @@ export async function git(
     options?.processCallback?.(process)
   }
 
+  // Remote repositories run Git on the SSH host. Skip the local hook proxy and
+  // credential trampoline: those binaries are not available on the remote, and
+  // the remote repository's own hooks and credentials should apply.
+  // TODO: surface remote hook progress in the Desktop hook UI.
+  if (isSshRemotePath(path)) {
+    return executeGitOverSsh(args, path, name, opts, terminalChunks)
+  }
+
   return withHooksEnv(
     hooksEnv =>
       withTrampolineEnv(
@@ -319,63 +328,7 @@ export async function git(
             throw err
           })
 
-          const exitCode = result.exitCode
-
-          let gitError: DugiteError | null = null
-          const acceptableExitCode = opts.successExitCodes
-            ? opts.successExitCodes.has(exitCode)
-            : false
-          if (!acceptableExitCode) {
-            gitError = parseError(coerceToString(result.stderr))
-            if (gitError === null) {
-              gitError = parseError(coerceToString(result.stdout))
-            }
-          }
-
-          const gitErrorDescription =
-            gitError !== null
-              ? getDescriptionForError(gitError, coerceToString(result.stderr))
-              : null
-          const gitResult = {
-            ...result,
-            gitError,
-            gitErrorDescription,
-            path,
-          }
-
-          let acceptableError = true
-          if (gitError !== null && opts.expectedErrors) {
-            acceptableError = opts.expectedErrors.has(gitError)
-          }
-
-          if ((gitError !== null && acceptableError) || acceptableExitCode) {
-            return gitResult
-          }
-
-          // The caller should either handle this error, or expect that exit code.
-          const errorMessage = new Array<string>()
-          errorMessage.push(
-            `\`git ${args.join(
-              ' '
-            )}\` exited with an unexpected code: ${exitCode}.`
-          )
-
-          const terminalOutput = terminalChunks.join('')
-
-          if (terminalOutput.length > 0) {
-            // Leave even less of the combined output in the log
-            errorMessage.push(terminalOutput.slice(-1024))
-          }
-
-          if (gitError !== null) {
-            errorMessage.push(
-              `(The error was parsed as ${gitError}: ${gitErrorDescription})`
-            )
-          }
-
-          log.error(errorMessage.join('\n'))
-
-          throw new GitError(gitResult, args, terminalOutput)
+          return interpretGitResult(args, path, opts, result, terminalChunks)
         },
         path,
         options?.isBackgroundTask ?? false,
@@ -384,6 +337,113 @@ export async function git(
     path,
     options
   )
+}
+
+async function executeGitOverSsh(
+  args: string[],
+  path: string,
+  name: string,
+  opts: IGitExecutionOptions,
+  terminalChunks: string[]
+): Promise<IGitResult> {
+  const { execGitOverSsh } = await import('../ssh/ssh-remote-git')
+  const commandName = `${name}: git ${args.join(' ')}`
+
+  const result = await GitPerf.measure(commandName, () =>
+    execGitOverSsh(path, args, {
+      stdin: opts.stdin,
+      encoding: opts.encoding,
+      env: opts.env,
+      processCallback: opts.processCallback,
+      isBackgroundTask: opts.isBackgroundTask,
+      maxBuffer: opts.maxBuffer,
+    })
+  ).catch(err => {
+    if (isErrnoException(err)) {
+      throw new Error(`Failed to execute ${name}: ${err.code}`)
+    }
+
+    if (isMaxBufferExceededError(err)) {
+      throw new ExecError(
+        `${err.message} for ${name}`,
+        err.stdout,
+        err.stderr,
+        err.cause ?? err
+      )
+    }
+
+    throw err
+  })
+
+  return interpretGitResult(args, path, opts, result, terminalChunks)
+}
+
+function interpretGitResult(
+  args: string[],
+  path: string,
+  opts: IGitExecutionOptions,
+  result: {
+    stdout: string | Buffer
+    stderr: string | Buffer
+    exitCode: number
+  },
+  terminalChunks: string[]
+): IGitResult {
+  const exitCode = result.exitCode
+
+  let gitError: DugiteError | null = null
+  const acceptableExitCode = opts.successExitCodes
+    ? opts.successExitCodes.has(exitCode)
+    : false
+  if (!acceptableExitCode) {
+    gitError = parseError(coerceToString(result.stderr))
+    if (gitError === null) {
+      gitError = parseError(coerceToString(result.stdout))
+    }
+  }
+
+  const gitErrorDescription =
+    gitError !== null
+      ? getDescriptionForError(gitError, coerceToString(result.stderr))
+      : null
+  const gitResult = {
+    ...result,
+    gitError,
+    gitErrorDescription,
+    path,
+  }
+
+  let acceptableError = true
+  if (gitError !== null && opts.expectedErrors) {
+    acceptableError = opts.expectedErrors.has(gitError)
+  }
+
+  if ((gitError !== null && acceptableError) || acceptableExitCode) {
+    return gitResult
+  }
+
+  // The caller should either handle this error, or expect that exit code.
+  const errorMessage = new Array<string>()
+  errorMessage.push(
+    `\`git ${args.join(' ')}\` exited with an unexpected code: ${exitCode}.`
+  )
+
+  const terminalOutput = terminalChunks.join('')
+
+  if (terminalOutput.length > 0) {
+    // Leave even less of the combined output in the log
+    errorMessage.push(terminalOutput.slice(-1024))
+  }
+
+  if (gitError !== null) {
+    errorMessage.push(
+      `(The error was parsed as ${gitError}: ${gitErrorDescription})`
+    )
+  }
+
+  log.error(errorMessage.join('\n'))
+
+  throw new GitError(gitResult, args, terminalOutput)
 }
 
 /**

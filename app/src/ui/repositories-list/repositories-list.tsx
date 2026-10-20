@@ -1588,6 +1588,10 @@ export class RepositoriesList extends React.Component<
           : 'Add existing repository…',
         action: this.onAddExistingRepository,
       },
+      {
+        label: __DARWIN__ ? 'Connect to SSH Host…' : 'Connect to SSH host…',
+        action: this.onConnectToSshHost,
+      },
       { type: 'separator' },
       {
         label: __DARWIN__ ? 'New Group…' : 'New group…',
@@ -1616,6 +1620,10 @@ export class RepositoriesList extends React.Component<
 
   private onAddExistingRepository = () => {
     this.props.dispatcher.showPopup({ type: PopupType.AddRepository })
+  }
+
+  private onConnectToSshHost = () => {
+    this.props.dispatcher.showPopup({ type: PopupType.ConnectToSSHHost })
   }
 
   private onNewGroup = () => {

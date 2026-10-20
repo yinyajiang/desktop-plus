@@ -8,6 +8,7 @@ export type MenuEvent =
   | 'show-history'
   | 'show-compare'
   | 'add-local-repository'
+  | 'connect-to-ssh-host'
   | 'create-branch'
   | 'show-branches'
   | 'show-worktrees'

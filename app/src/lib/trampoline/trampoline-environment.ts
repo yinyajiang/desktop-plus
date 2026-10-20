@@ -235,6 +235,39 @@ const isSSHAuthFailure = (e: unknown): e is GitError =>
   (e.result.gitError === DugiteError.SSHAuthenticationFailed ||
     e.result.gitError === DugiteError.SSHPermissionDenied)
 
+/**
+ * Environment for a local `ssh` process that may need Desktop's askpass
+ * prompts (host key, key passphrase, or password).
+ *
+ * Unlike `withTrampolineEnv`, this does not install Desktop's credential
+ * helper. The remote Git process must not be pointed at a helper binary that
+ * exists only on this machine.
+ */
+export async function withSshAskpassEnv<T>(
+  fn: (env: Record<string, string | undefined>, token: string) => Promise<T>,
+  isBackgroundTask = false
+): Promise<T> {
+  const sshEnv = await getSSHEnvironment()
+
+  return withTrampolineToken(async token => {
+    isBackgroundTaskEnvironment.set(token, isBackgroundTask)
+    try {
+      return await fn(
+        {
+          ...sshEnv,
+          SSH_ASKPASS_REQUIRE: 'force',
+          DESKTOP_PORT: `${await trampolineServer.getPort()}`,
+          DESKTOP_TRAMPOLINE_TOKEN: token,
+        },
+        token
+      )
+    } finally {
+      removeMostRecentSSHCredential(token)
+      isBackgroundTaskEnvironment.delete(token)
+    }
+  })
+}
+
 /** Returns the path of the desktop-askpass-trampoline binary. */
 export function getDesktopAskpassTrampolinePath(): string {
   return Path.resolve(

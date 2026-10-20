@@ -35,6 +35,7 @@ export type MenuIDs =
   | 'remove-repository'
   | 'new-repository'
   | 'add-local-repository'
+  | 'connect-to-ssh-host'
   | 'clone-repository'
   | 'about'
   | 'create-pull-request'

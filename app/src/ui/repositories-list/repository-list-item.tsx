@@ -14,6 +14,7 @@ import { createObservableRef } from '../lib/observable-ref'
 import { Tooltip } from '../lib/tooltip'
 import { enableAccessibleListToolTips } from '../../lib/feature-flag'
 import { TooltippedContent } from '../lib/tooltipped-content'
+import { formatSshRemoteLabel } from '../../lib/ssh/ssh-remote-location'
 
 interface IRepositoryListItemProps {
   readonly repository: Repositoryish
@@ -108,6 +109,10 @@ export class RepositoryListItem extends React.Component<
           />
         </div>
 
+        {repository instanceof Repository && repository.sshRemote ? (
+          <span className="ssh-badge">SSH</span>
+        ) : null}
+
         {renderBranchNameBadge(this.props.branchName)}
 
         {repository instanceof Repository &&
@@ -160,13 +165,19 @@ export class RepositoryListItem extends React.Component<
     const alias = repo instanceof Repository ? repo.alias : null
     const realName = gitHubRepo ? gitHubRepo.fullName : repo.name
 
+    const sshLabel =
+      repo instanceof Repository && repo.sshRemote
+        ? formatSshRemoteLabel(repo.sshRemote)
+        : null
+
     return (
       <>
         <div>
           <strong>{realName}</strong>
           {alias && <> ({alias})</>}
         </div>
-        <div>{repo.path}</div>
+        <div>{sshLabel ?? repo.path}</div>
+        {sshLabel ? <div>SSH remote</div> : null}
         {this.props.branchName && <div>Branch: {this.props.branchName}</div>}
       </>
     )

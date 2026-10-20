@@ -140,6 +140,7 @@ const allMenuIds: ReadonlyArray<MenuIDs> = [
   'remove-repository',
   'new-repository',
   'add-local-repository',
+  'connect-to-ssh-host',
   'clone-repository',
   'about',
   'create-pull-request',
@@ -282,6 +283,22 @@ function getRepositoryMenuBuilder(state: IAppState): MenuStateBuilder {
     if (!enableWorktreeSupport()) {
       menuStateBuilder.disable('show-worktrees-list')
       menuStateBuilder.disable('create-worktree')
+    }
+
+    if (
+      selectedState?.repository instanceof Repository &&
+      selectedState.repository.sshRemote
+    ) {
+      // These actions need a local working tree.
+      menuStateBuilder.disable('open-in-shell')
+      menuStateBuilder.disable('open-working-directory')
+      menuStateBuilder.disable('open-external-editor')
+      menuStateBuilder.disable('open-with-external-editor')
+      menuStateBuilder.disable('create-worktree')
+      menuStateBuilder.disable('show-worktrees-list')
+      if (enableCopilotAppHandoff()) {
+        menuStateBuilder.disable('open-in-copilot-app')
+      }
     }
 
     menuStateBuilder.setEnabled(
@@ -434,6 +451,7 @@ function getInWelcomeFlowBuilder(inWelcomeFlow: boolean): MenuStateBuilder {
   const welcomeScopedIds: ReadonlyArray<MenuIDs> = [
     'new-repository',
     'add-local-repository',
+    'connect-to-ssh-host',
     'clone-repository',
     'preferences',
     'about',

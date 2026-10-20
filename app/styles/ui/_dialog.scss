@@ -680,6 +680,35 @@ dialog {
     width: 400px;
   }
 
+  &#connect-ssh-host {
+    width: 480px;
+
+    .ssh-remote-note {
+      font-size: var(--font-size-sm);
+      color: var(--text-secondary-color);
+      margin-top: 0;
+    }
+
+    .ssh-remote-browser {
+      max-height: 160px;
+      overflow: auto;
+      margin-top: var(--spacing);
+      border: 1px solid var(--box-border-color);
+      border-radius: var(--border-radius);
+      padding: var(--spacing-half);
+    }
+
+    .ssh-remote-browser ul {
+      list-style: none;
+      margin: var(--spacing-half) 0 0;
+      padding: 0;
+    }
+
+    .ssh-remote-browser li {
+      margin: 0;
+    }
+  }
+
   &#initialize-lfs {
     width: 400px;
   }

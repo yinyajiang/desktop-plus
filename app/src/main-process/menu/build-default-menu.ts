@@ -143,6 +143,11 @@ export function buildDefaultMenuTemplate({
         click: emit('add-local-repository'),
       },
       {
+        label: __DARWIN__ ? 'Connect to SSH Host…' : 'Connect to SSH &host…',
+        id: 'connect-to-ssh-host',
+        click: emit('connect-to-ssh-host'),
+      },
+      {
         label: __DARWIN__ ? 'Clone Repository…' : 'Clo&ne repository…',
         id: 'clone-repository',
         accelerator: 'CmdOrCtrl+Shift+O',

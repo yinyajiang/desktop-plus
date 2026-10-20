@@ -3,6 +3,7 @@ import type { Repository } from '../../models/repository'
 import type { WorktreeEntry, WorktreeType } from '../../models/worktree'
 import { pathExists } from '../path-exists'
 import { git } from './core'
+import { isSshRemotePath } from '../ssh/ssh-remote-location'
 
 export function parseWorktreePorcelainOutput(
   stdout: string
@@ -56,11 +57,20 @@ export function parseWorktreePorcelainOutput(
 export async function listWorktrees(
   repositoryOrPath: Repository | string
 ): Promise<ReadonlyArray<WorktreeEntry>> {
-  const result = await git(
-    ['worktree', 'list', '--porcelain', '-z'],
+  const path =
     typeof repositoryOrPath === 'string'
       ? repositoryOrPath
-      : repositoryOrPath.path,
+      : repositoryOrPath.path
+
+  // TODO: linked worktrees on an SSH host are not managed. Returning none
+  // keeps the sidebar from treating remote filesystem paths as local folders.
+  if (isSshRemotePath(path)) {
+    return []
+  }
+
+  const result = await git(
+    ['worktree', 'list', '--porcelain', '-z'],
+    path,
     'listWorktrees'
   )
 

@@ -82,6 +82,17 @@
       font-style: italic;
     }
 
+    .ssh-badge {
+      flex-shrink: 0;
+      color: var(--list-item-badge-color);
+      background: var(--branch-pill-background-color);
+      font-size: var(--font-size-sm);
+      margin-left: var(--spacing-half);
+      padding: 0 var(--spacing-half);
+      border-radius: var(--border-radius);
+      line-height: 1.6;
+    }
+
     .branch-name {
       color: var(--list-item-badge-color);
       background: var(--branch-pill-background-color);
