@@ -154,6 +154,29 @@ describe('SSH remote locations', () => {
     assert.equal(args.join(' ').includes('ssh_config'), false)
   })
 
+  it('shields the destination from option injection with a user starting with a dash', () => {
+    const args = buildSshArgs(
+      { ...location, user: '-oProxyCommand=evil' },
+      null
+    )
+    const separator = args.indexOf('--')
+    assert.notEqual(separator, -1)
+    assert.equal(args[separator + 1], '-oProxyCommand=evil@dev.example.com')
+    assert.equal(separator + 2, args.length)
+
+    const interactive = buildInteractiveSshArgs({
+      ...location,
+      user: '-oProxyCommand=evil',
+    })
+    const interactiveSeparator = interactive.indexOf('--')
+    assert.notEqual(interactiveSeparator, -1)
+    assert.equal(interactive[interactiveSeparator - 1], '-t')
+    assert.equal(
+      interactive[interactiveSeparator + 1],
+      '-oProxyCommand=evil@dev.example.com'
+    )
+  })
+
   it('leaves identity selection to ssh when the user did not type a key path', () => {
     const args = buildSshArgs(
       { ...location, identityFile: null, port: null },

@@ -338,9 +338,12 @@ export function buildInteractiveSshArgs(
 ): string[] {
   const connection = buildSshArgs(location, null)
   const destination = connection[connection.length - 1]
+  // `-t` stays before the `--` that buildSshArgs puts in front of the
+  // destination, or ssh would treat it as the host.
   return [
-    ...connection.slice(0, -1),
+    ...connection.slice(0, -2),
     '-t',
+    '--',
     destination,
     buildInteractiveSshRemoteCommand(location.remotePath),
   ]
@@ -480,7 +483,9 @@ export function buildSshArgs(
     )
   }
 
-  args.push(`${location.user}@${location.hostname}`)
+  // `--` stops a user name that starts with `-` from being parsed as an ssh
+  // option (e.g. `-oProxyCommand=...` would otherwise run a local command).
+  args.push('--', `${location.user}@${location.hostname}`)
   return args
 }
 
