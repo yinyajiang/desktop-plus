@@ -1,16 +1,28 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  buildInteractiveSshArgs,
   buildRemoteFileBundleCommand,
   buildRemoteGitCommand,
+  buildRemoteNoFollowDeleteCommand,
+  buildRemoteNoFollowReadCommand,
+  buildRemoteNoFollowWriteCommand,
   buildRemotePrefixReadCommand,
   buildRemoteRemoveFileCommand,
   buildRemoteStatCommand,
   buildSshArgs,
+  quotePosixCommand,
+  RemoteFileSymlinkExit,
   formatSshRemoteLabel,
   formatSshRemoteLocation,
   parseRemoteFileBundle,
@@ -23,6 +35,8 @@ import {
   shellQuote,
 } from '../../src/lib/ssh/ssh-remote-location'
 import { rebaseInternalStateFromFiles } from '../../src/lib/git/rebase-progress'
+import { planSshTerminalLaunch } from '../../src/lib/ssh/ssh-terminal-launch'
+import { ShellError } from '../../src/lib/shells/error'
 
 const location = {
   user: 'ada',
@@ -275,5 +289,155 @@ describe('SSH remote locations', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('reads and writes a file without following a symlink', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dplus-ssh-ignore-'))
+    const directory = join(root, "ada's repo")
+    const target = join(directory, 'secret')
+    const ignore = join(directory, '.gitignore')
+    try {
+      mkdirSync(directory)
+      writeFileSync(target, 'secret contents')
+      symlinkSync(target, ignore)
+
+      const readLink = spawnSync(
+        'sh',
+        ['-c', buildRemoteNoFollowReadCommand(ignore)],
+        { encoding: 'utf8' }
+      )
+      assert.equal(readLink.status, RemoteFileSymlinkExit)
+      assert.equal(readLink.stdout.includes('secret contents'), false)
+
+      const writeLink = spawnSync(
+        'sh',
+        ['-c', buildRemoteNoFollowWriteCommand(ignore)],
+        { input: 'node_modules\n', encoding: 'utf8' }
+      )
+      assert.equal(writeLink.status, RemoteFileSymlinkExit)
+      assert.equal(
+        spawnSync('sh', ['-c', `cat ${quotePosixCommand([target])}`], {
+          encoding: 'utf8',
+        }).stdout,
+        'secret contents'
+      )
+
+      const deleted = spawnSync(
+        'sh',
+        ['-c', buildRemoteNoFollowDeleteCommand(ignore)],
+        { encoding: 'utf8' }
+      )
+      assert.equal(deleted.status, RemoteFileSymlinkExit)
+
+      rmSync(ignore)
+      const body = 'node_modules\n# note\n'
+      const command = buildRemoteNoFollowWriteCommand(ignore)
+      assert.equal(command.includes(body), false)
+      const written = spawnSync('sh', ['-c', command], {
+        input: body,
+        encoding: 'utf8',
+      })
+      assert.equal(written.status, 0, written.stderr)
+      const read = spawnSync(
+        'sh',
+        ['-c', buildRemoteNoFollowReadCommand(ignore)],
+        { encoding: 'utf8' }
+      )
+      assert.equal(read.status, 0, read.stderr)
+      assert.equal(read.stdout, body)
+
+      const removed = spawnSync(
+        'sh',
+        ['-c', buildRemoteNoFollowDeleteCommand(ignore)],
+        { encoding: 'utf8' }
+      )
+      assert.equal(removed.status, 0, removed.stderr)
+      const missing = spawnSync(
+        'sh',
+        ['-c', buildRemoteNoFollowReadCommand(ignore)],
+        { encoding: 'utf8' }
+      )
+      assert.equal(missing.status, 2)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('builds an interactive ssh command without disabling host checking', () => {
+    const args = buildInteractiveSshArgs({
+      ...location,
+      remotePath: "/home/ada/ada's repo",
+    })
+    assert.equal(args.includes('-t'), true)
+    assert.equal(args.includes('-F'), false)
+    assert.equal(args.includes('StrictHostKeyChecking=no'), false)
+    assert.equal(args.includes('UserKnownHostsFile=/dev/null'), false)
+    assert.equal(args.includes('ada@dev.example.com'), true)
+    const remoteCommand = args[args.length - 1]
+    assert.equal(
+      remoteCommand,
+      `cd -- '/home/ada/ada'\\''s repo' && exec "\${SHELL:-/bin/sh}" -i`
+    )
+    assert.equal(args.join(' ').includes('ssh_config'), false)
+  })
+
+  it('asks a terminal to run ssh in the remote repository', () => {
+    const plan = planSshTerminalLaunch({
+      platform: 'linux',
+      shell: 'GNOME Terminal',
+      terminalPath: '/usr/bin/gnome-terminal',
+      sshPath: 'ssh',
+      location,
+    })
+    assert.equal(plan.file, '/usr/bin/gnome-terminal')
+    assert.equal(plan.args[0], '--')
+    assert.equal(plan.args[1], 'ssh')
+    assert.equal(plan.args.includes('-t'), true)
+    assert.equal(plan.args.at(-2), 'ada@dev.example.com')
+
+    const terminal = planSshTerminalLaunch({
+      platform: 'darwin',
+      shell: 'Terminal',
+      terminalPath: '/System/Applications/Utilities/Terminal.app',
+      sshPath: 'ssh',
+      location: { ...location, remotePath: '/home/ada/say "hi"' },
+    })
+    assert.equal(terminal.file, 'osascript')
+    const source = terminal.args[1]
+    assert.equal(source.includes('tell application "Terminal"'), true)
+    assert.equal(source.includes('say \\"hi\\"'), true)
+    assert.equal(source.includes('StrictHostKeyChecking=no'), false)
+
+    const windows = planSshTerminalLaunch({
+      platform: 'win32',
+      shell: 'Windows Terminal',
+      terminalPath: 'wt.exe',
+      sshPath: 'C:\\Windows\\System32\\OpenSSH\\ssh.exe',
+      location,
+    })
+    assert.deepEqual(windows.args.slice(0, 4), ['-w', '0', 'new-tab', '--'])
+    assert.equal(windows.args[4], 'C:\\Windows\\System32\\OpenSSH\\ssh.exe')
+
+    const prompt = planSshTerminalLaunch({
+      platform: 'win32',
+      shell: 'Command Prompt',
+      terminalPath: 'cmd.exe',
+      sshPath: 'ssh.exe',
+      location,
+    })
+    assert.equal(prompt.file, 'ssh.exe')
+    assert.equal(prompt.windowsHide, false)
+
+    assert.throws(
+      () =>
+        planSshTerminalLaunch({
+          platform: 'linux',
+          shell: 'Warp',
+          terminalPath: '/usr/bin/warp-terminal',
+          sshPath: 'ssh',
+          location,
+        }),
+      ShellError
+    )
   })
 })

@@ -12,9 +12,16 @@ import {
   buildRemoteExistenceCommand,
   buildRemoteFileBundleCommand,
   buildRemoteGitCommand,
+  buildRemoteNoFollowDeleteCommand,
+  buildRemoteNoFollowReadCommand,
+  buildRemoteNoFollowWriteCommand,
   buildRemotePrefixReadCommand,
   buildRemoteRemoveFileCommand,
   buildRemoteStatCommand,
+  RemoteFileIsDirectoryExit,
+  RemoteFileMissingExit,
+  RemoteFileSymlinkExit,
+  RemoteFileTempExit,
   buildSshArgs,
   formatSshRemoteLocation,
   normalizeRemotePath,
@@ -28,9 +35,17 @@ import {
 } from './ssh-remote-location'
 
 export class SshRemoteError extends Error {
-  public constructor(message: string) {
+  public constructor(message: string, public readonly exitCode?: number) {
     super(message)
     this.name = 'SshRemoteError'
+  }
+}
+
+/** The remote path is a symlink. Callers must not follow it. */
+export class SshSymlinkError extends SshRemoteError {
+  public constructor(path: string) {
+    super(`Refusing to follow symbolic link ${path}.`, RemoteFileSymlinkExit)
+    this.name = 'SshSymlinkError'
   }
 }
 
@@ -315,6 +330,94 @@ export async function readSshFileBundle(
   }
 
   return parseRemoteFileBundle(result.stdout, relativeFiles)
+}
+
+/**
+ * Read a working-tree text file. A missing file returns null. A symlink throws
+ * {@link SshSymlinkError} instead of following it.
+ */
+export async function readSshTextFileNoFollow(
+  virtualPath: string,
+  relativePath: string
+): Promise<string | null> {
+  const location = requireSshLocation(virtualPath)
+  const absolute = requireWorkingTreeFile(location, relativePath)
+  const result = await execRemoteCommand(
+    location,
+    buildRemoteNoFollowReadCommand(absolute)
+  )
+  if (result.exitCode === RemoteFileMissingExit) {
+    return null
+  }
+  assertNoFollowResult(result, absolute)
+  if (typeof result.stdout !== 'string') {
+    throw new SshRemoteError('SSH did not return text.')
+  }
+  return result.stdout
+}
+
+/**
+ * Write a working-tree file without following a symlink. `contents` is the
+ * process stdin, not part of the remote command.
+ */
+export async function writeSshWorkingTreeFile(
+  virtualPath: string,
+  relativePath: string,
+  contents: string | Buffer
+): Promise<void> {
+  const location = requireSshLocation(virtualPath)
+  const absolute = requireWorkingTreeFile(location, relativePath)
+  const result = await execRemoteCommand(
+    location,
+    buildRemoteNoFollowWriteCommand(absolute),
+    { stdin: contents }
+  )
+  assertNoFollowResult(result, absolute)
+}
+
+/** Delete a working-tree file. A symlink is left in place and reported. */
+export async function deleteSshWorkingTreeFileNoFollow(
+  virtualPath: string,
+  relativePath: string
+): Promise<void> {
+  const location = requireSshLocation(virtualPath)
+  const absolute = requireWorkingTreeFile(location, relativePath)
+  const result = await execRemoteCommand(
+    location,
+    buildRemoteNoFollowDeleteCommand(absolute)
+  )
+  assertNoFollowResult(result, absolute)
+}
+
+function assertNoFollowResult(
+  result: ISshCommandResult,
+  absolutePath: string
+): void {
+  if (result.exitCode === 0) {
+    return
+  }
+  if (result.exitCode === RemoteFileSymlinkExit) {
+    throw new SshSymlinkError(absolutePath)
+  }
+  if (result.exitCode === RemoteFileIsDirectoryExit) {
+    throw new SshRemoteError(`${absolutePath} is a directory.`, result.exitCode)
+  }
+  if (result.exitCode === RemoteFileTempExit) {
+    throw new SshRemoteError(
+      `Could not create a temporary file next to ${absolutePath}.`,
+      result.exitCode
+    )
+  }
+  if (result.exitCode === RemoteFileMissingExit) {
+    throw new SshRemoteError(
+      `No such file or directory: ${absolutePath}`,
+      result.exitCode
+    )
+  }
+  throw new SshRemoteError(
+    sshFailureMessage(result.stderrText, result.exitCode),
+    result.exitCode
+  )
 }
 
 /** Remove one file inside the remote working tree. Directories are left alone. */

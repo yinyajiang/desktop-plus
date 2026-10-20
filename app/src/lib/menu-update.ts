@@ -289,8 +289,8 @@ function getRepositoryMenuBuilder(state: IAppState): MenuStateBuilder {
       selectedState?.repository instanceof Repository &&
       selectedState.repository.sshRemote
     ) {
-      // These actions need a local working tree.
-      menuStateBuilder.disable('open-in-shell')
+      // Reveal and the external editor need a local working tree. Open in
+      // shell starts ssh in the selected terminal instead.
       menuStateBuilder.disable('open-working-directory')
       menuStateBuilder.disable('open-external-editor')
       menuStateBuilder.disable('open-with-external-editor')

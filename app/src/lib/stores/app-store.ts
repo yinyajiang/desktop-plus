@@ -309,6 +309,9 @@ import {
   parse as parseShell,
   Shell,
 } from '../shells'
+import { parseSshRemoteLocation } from '../ssh/ssh-remote-location'
+import { launchSshRemoteShell } from '../ssh/launch-ssh-shell'
+import { writeSshWorkingTreeFile } from '../ssh/ssh-remote-git'
 import { ILaunchStats, StatsStore } from '../stats'
 import { hasShownWelcomeFlow, markWelcomeFlowComplete } from '../welcome'
 import { WindowState } from '../window-state'
@@ -8754,6 +8757,21 @@ export class AppStore extends TypedBaseStore<IAppState> {
         continue
       }
 
+      if (repository.sshRemote) {
+        try {
+          await writeSshWorkingTreeFile(
+            repository.path,
+            resolution.path,
+            resolution.resolvedContent
+          )
+        } catch (error) {
+          log.warn(`Copilot resolution skipped for '${resolution.path}'`, error)
+          continue
+        }
+        pathsToStage.push(resolution.path)
+        continue
+      }
+
       const absolutePath = await resolveWithin(repository.path, resolution.path)
       if (absolutePath === null) {
         log.warn(
@@ -9136,6 +9154,21 @@ export class AppStore extends TypedBaseStore<IAppState> {
   /** This shouldn't be called directly. See `Dispatcher`. */
   public async _openShell(path: string) {
     this.statsStore.increment('openShellCount')
+    const sshRemote = parseSshRemoteLocation(path)
+    if (sshRemote) {
+      try {
+        // Custom shell integrations only receive a local directory. SSH
+        // sessions use the selected terminal and the system ssh client.
+        const match = await findShellOrDefault(this.selectedShell)
+        launchSshRemoteShell(match.shell, match.path, sshRemote, error =>
+          this._pushError(error)
+        )
+      } catch (error) {
+        this.emitError(error)
+      }
+      return
+    }
+
     const { useCustomShell, customShell } = this.getState()
 
     try {

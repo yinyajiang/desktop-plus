@@ -28,6 +28,15 @@ the last-fetched time comes from the remote `FETCH_HEAD` timestamp. Discarding
 an untracked file deletes it on the host; discarding a tracked change restores
 it with `git checkout`.
 
+Repository settings and the changes-list Ignore action read and write the
+remote `.gitignore`. A symbolic link is refused, and the new contents are
+written to a temporary file in the repository before replacing `.gitignore`,
+so the write does not follow a link. Copilot conflict resolutions are written
+the same way. Open in shell starts the selected terminal and runs the system
+`ssh` client in that repository. The terminal session is a normal SSH login:
+it is not given Desktop's askpass trampoline, and it does not turn off host-key
+checking.
+
 ## Intentional gaps
 
 - Push and pull authenticate with the **remote host's** Git and SSH
@@ -38,12 +47,14 @@ it with `git checkout`.
 - There is no local filesystem watch. The repository refreshes when Desktop
   refreshes it. If the host is unreachable, the repository is shown as missing
   until Check again succeeds.
-- Open in shell, Reveal in Finder/Explorer, and the external editor stay
-  disabled. Those actions expect a local working tree.
+- Reveal in Finder/Explorer and the external editor stay disabled. Those
+  actions expect a local working tree. Warp, Hyper, Tabby, Black Box, and
+  COSMIC Terminal cannot be given an SSH command; choose another shell in
+  Options.
 - Linked worktrees are not managed.
-- The repository gitignore editor and other features that open working-tree
-  files outside the diff view still use the local filesystem. External diff
-  tools do not see the remote files.
+- External diff tools and other features that open working-tree files outside
+  the diff, gitignore, and conflict-resolution flows still use the local
+  filesystem.
 - Desktop hook UI is not used. Hooks configured in the remote repository run
   on the host.
 - Git LFS progress and Desktop's credential helper are not forwarded.

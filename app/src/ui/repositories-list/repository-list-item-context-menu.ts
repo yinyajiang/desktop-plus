@@ -105,7 +105,7 @@ export const generateRepositoryListContextMenu = (
     {
       label: openInShell,
       action: () => config.onOpenInShell(repository, config.worktreePath),
-      enabled: !missing && !sshRemote,
+      enabled: !missing,
     },
     {
       label: RevealInFileManagerLabel,

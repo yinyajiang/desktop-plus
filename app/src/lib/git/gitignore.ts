@@ -4,9 +4,37 @@ import { Repository } from '../../models/repository'
 import { getConfigValue } from './config'
 import { lstat, open, type FileHandle } from 'fs/promises'
 import { isErrnoException } from '../errno-exception'
+import {
+  deleteSshWorkingTreeFileNoFollow,
+  readSshTextFileNoFollow,
+  SshSymlinkError,
+  writeSshWorkingTreeFile,
+} from '../ssh/ssh-remote-git'
 
 const symbolicLinkErrorMessage =
   'Cannot use a symbolic link as the root .gitignore file'
+
+const GitIgnoreName = '.gitignore'
+
+async function saveRemoteGitIgnore(
+  repository: Repository,
+  text: string
+): Promise<void> {
+  try {
+    if (text === '') {
+      await deleteSshWorkingTreeFileNoFollow(repository.path, GitIgnoreName)
+      return
+    }
+
+    const fileContents = await formatGitIgnoreContents(text, repository)
+    await writeSshWorkingTreeFile(repository.path, GitIgnoreName, fileContents)
+  } catch (error) {
+    if (error instanceof SshSymlinkError) {
+      throw createSymbolicLinkError()
+    }
+    throw error
+  }
+}
 
 function createSymbolicLinkError(): Error {
   return new Error(symbolicLinkErrorMessage)
@@ -81,6 +109,17 @@ async function openExistingGitIgnore(
 export async function readGitIgnoreAtRoot(
   repository: Repository
 ): Promise<string | null> {
+  if (repository.sshRemote) {
+    try {
+      return await readSshTextFileNoFollow(repository.path, GitIgnoreName)
+    } catch (error) {
+      if (error instanceof SshSymlinkError) {
+        throw createSymbolicLinkError()
+      }
+      throw error
+    }
+  }
+
   const ignorePath = Path.join(repository.path, '.gitignore')
   const file = await openExistingGitIgnore(ignorePath, FS.constants.O_RDONLY)
 
@@ -105,6 +144,11 @@ export async function saveGitIgnore(
   repository: Repository,
   text: string
 ): Promise<void> {
+  if (repository.sshRemote) {
+    await saveRemoteGitIgnore(repository, text)
+    return
+  }
+
   const ignorePath = Path.join(repository.path, '.gitignore')
 
   if (text === '') {

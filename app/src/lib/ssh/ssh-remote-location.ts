@@ -272,6 +272,85 @@ export function buildRemoteRemoveFileCommand(absolutePath: string): string {
   return `rm -f -- ${shellQuote(absolutePath)}`
 }
 
+/** Remote command exited because the path is a symbolic link. */
+export const RemoteFileSymlinkExit = 3
+/** Remote command exited because the path does not exist. */
+export const RemoteFileMissingExit = 2
+/** Remote command exited because the path is a directory. */
+export const RemoteFileIsDirectoryExit = 4
+/** Remote command exited because a temporary file could not be created. */
+export const RemoteFileTempExit = 5
+
+/**
+ * Read a file without following a symlink. A missing file exits
+ * {@link RemoteFileMissingExit}. A symlink, including a dangling one, exits
+ * {@link RemoteFileSymlinkExit}.
+ */
+export function buildRemoteNoFollowReadCommand(absolutePath: string): string {
+  const quoted = shellQuote(absolutePath)
+  return `if [ -L ${quoted} ]; then exit ${RemoteFileSymlinkExit}; fi; if [ ! -e ${quoted} ]; then exit ${RemoteFileMissingExit}; fi; cat ${quoted}`
+}
+
+/** Remove a file. Missing and symlink paths use the same exit codes as the read. */
+export function buildRemoteNoFollowDeleteCommand(absolutePath: string): string {
+  const quoted = shellQuote(absolutePath)
+  return `if [ -L ${quoted} ]; then exit ${RemoteFileSymlinkExit}; fi; if [ ! -e ${quoted} ]; then exit ${RemoteFileMissingExit}; fi; rm -f -- ${quoted}`
+}
+
+/**
+ * Replace a file with the bytes on stdin.
+ *
+ * The body is not placed in the command string. A symlink is not followed:
+ * the write goes to a temporary file in the same directory and `mv` replaces
+ * the directory entry.
+ */
+export function buildRemoteNoFollowWriteCommand(absolutePath: string): string {
+  const quoted = shellQuote(absolutePath)
+  const template = shellQuote(
+    posix.join(posix.dirname(absolutePath), '.dplus-write.XXXXXX')
+  )
+  return [
+    `if [ -L ${quoted} ]; then exit ${RemoteFileSymlinkExit}; fi`,
+    `if [ -d ${quoted} ]; then exit ${RemoteFileIsDirectoryExit}; fi`,
+    `tmp=$(mktemp ${template}) || exit ${RemoteFileTempExit}`,
+    `if cat > "$tmp"; then if [ -L ${quoted} ]; then rm -f "$tmp"; exit ${RemoteFileSymlinkExit}; fi; chmod 644 "$tmp"; mv -f "$tmp" ${quoted} || { status=$?; rm -f "$tmp"; exit "$status"; }; else status=$?; rm -f "$tmp"; exit "$status"; fi`,
+  ].join('; ')
+}
+
+/**
+ * Command run by the remote login shell after `ssh -t`.
+ *
+ * `-i` keeps the shell interactive without a login shell, so a profile that
+ * `cd`s home does not undo the `cd` into the repository.
+ */
+export function buildInteractiveSshRemoteCommand(remotePath: string): string {
+  return `cd -- ${shellQuote(remotePath)} && exec "\${SHELL:-/bin/sh}" -i`
+}
+
+/**
+ * Arguments for an interactive `ssh` process, not including the `ssh` binary.
+ *
+ * Host-key checking stays at the OpenSSH default. `-F` is not set, and this
+ * does not read an SSH config file to choose the host.
+ */
+export function buildInteractiveSshArgs(
+  location: ISshRemoteLocation
+): string[] {
+  const connection = buildSshArgs(location, null)
+  const destination = connection[connection.length - 1]
+  return [
+    ...connection.slice(0, -1),
+    '-t',
+    destination,
+    buildInteractiveSshRemoteCommand(location.remotePath),
+  ]
+}
+
+/** Quote argv for a local POSIX shell, such as Terminal's `do script`. */
+export function quotePosixCommand(args: readonly string[]): string {
+  return args.map(shellQuote).join(' ')
+}
+
 export class RemoteFileBundleError extends Error {
   public constructor(message: string) {
     super(message)
