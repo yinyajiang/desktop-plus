@@ -4,10 +4,15 @@ import {
   applyRepositoryGroupOrder,
   getGroupKey,
   getRepositoryGroupDropBoundary,
+  migrateRepositoryGroupKey,
   moveRepositoryGroupInOrder,
   RepositoryListGroup,
 } from '../../src/ui/repositories-list/group-repositories'
-import { renameKeyInGroupOrder } from '../../src/lib/stores/repository-group-order'
+import {
+  getRepositoryGroupOrder,
+  renameKeyInGroupOrder,
+} from '../../src/lib/stores/repository-group-order'
+import { getCollapsedRepositoryGroups } from '../../src/lib/stores/repository-group-collapse'
 
 const customGroup = (name: string) => ({
   identifier: { kind: 'other', displayName: name } as RepositoryListGroup,
@@ -124,6 +129,63 @@ describe('applyRepositoryGroupOrder', () => {
   it('uses the first position of duplicated saved keys', () => {
     const ordered = applyRepositoryGroupOrder([a, b], ['1:b', '1:a', '1:b'])
     assert.deepStrictEqual(keysOf(ordered), ['1:b', '1:a'])
+  })
+
+  it('keeps a saved Other group when upgrading its key for the SSH group', () => {
+    const other = {
+      identifier: { kind: 'other', displayName: null } as RepositoryListGroup,
+    }
+    const ssh = {
+      identifier: { kind: 'ssh', displayName: null } as RepositoryListGroup,
+    }
+    const work = customGroup('Work')
+    const ordered = applyRepositoryGroupOrder(
+      [ssh, work, other],
+      ['3:other', '1:Work'].map(migrateRepositoryGroupKey)
+    )
+    assert.deepStrictEqual(keysOf(ordered), ['4:other', '1:Work', '3:ssh'])
+  })
+})
+
+describe('saved repository group keys', () => {
+  const orderKey = 'repository-group-order'
+  const collapsedKey = 'collapsed-repository-groups'
+
+  it('rewrites the saved Other group key from before SSH existed', () => {
+    localStorage.setItem(
+      orderKey,
+      JSON.stringify(['1:a', '3:other', '2:ghe.io'])
+    )
+    try {
+      assert.deepStrictEqual(getRepositoryGroupOrder(), [
+        '1:a',
+        '4:other',
+        '2:ghe.io',
+      ])
+    } finally {
+      localStorage.removeItem(orderKey)
+    }
+  })
+
+  it('leaves current group keys unchanged', () => {
+    localStorage.setItem(orderKey, JSON.stringify(['3:ssh', '4:other']))
+    try {
+      assert.deepStrictEqual(getRepositoryGroupOrder(), ['3:ssh', '4:other'])
+    } finally {
+      localStorage.removeItem(orderKey)
+    }
+  })
+
+  it('keeps a previously collapsed Other group collapsed', () => {
+    localStorage.setItem(collapsedKey, JSON.stringify(['3:other', '1:Work']))
+    try {
+      assert.deepStrictEqual(
+        [...getCollapsedRepositoryGroups()],
+        ['4:other', '1:Work']
+      )
+    } finally {
+      localStorage.removeItem(collapsedKey)
+    }
   })
 })
 

@@ -713,6 +713,8 @@ export class RepositoriesList extends React.Component<
     const { displayName } = group
     if (kind === 'enterprise') {
       return displayName ?? group.host
+    } else if (kind === 'ssh') {
+      return displayName ?? 'SSH'
     } else if (kind === 'other') {
       return displayName ?? 'Other'
     } else if (kind === 'dotcom') {
