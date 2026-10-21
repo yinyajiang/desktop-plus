@@ -132,13 +132,28 @@ jobs:
       matrix:
         os: [macos-14, windows-2022, ubuntu-latest]
         arch: [x64, arm64]
+        # This fork publishes macOS and Windows only. Linux installer builds
+        # (AppImage, deb, rpm) stay out of the matrix unless the repository
+        # variable PUBLISH_LINUX_PACKAGES is the string true. That same
+        # variable attaches those packages to the GitHub release and runs the
+        # AUR, RPM, and APT jobs below.
+        exclude:
+          - os:
+              ${{ vars.PUBLISH_LINUX_PACKAGES == 'true' && 'keep-linux' ||
+              'ubuntu-latest' }}
         include:
           - os: macos-14
             friendlyName: macOS
           - os: windows-2022
             friendlyName: Windows
-          - os: ubuntu-latest
-            friendlyName: Linux
+          # include is applied after exclude. When Linux builds are off, merge
+          # this into the macOS jobs so it does not add an arch-less Linux job.
+          - os:
+              ${{ vars.PUBLISH_LINUX_PACKAGES == 'true' && 'ubuntu-latest' ||
+              'macos-14' }}
+            friendlyName:
+              ${{ vars.PUBLISH_LINUX_PACKAGES == 'true' && 'Linux' || 'macOS'
+              }}
     timeout-minutes: 60
     environment: ${{ inputs.environment }}
     env:
@@ -604,11 +619,8 @@ jobs:
         with:
           name: ${{ steps.release_notes.outputs.title }}
           body: ${{ steps.release_notes.outputs.body }}
+          # macOS and Windows only. Linux packages are a separate step below.
           files: |
-            artifacts/**/DesktopPlus-*.AppImage
-            artifacts/**/DesktopPlus-*.AppImage.zsync
-            artifacts/**/DesktopPlus-*.deb
-            artifacts/**/DesktopPlus-*.rpm
             artifacts/**/DesktopPlus-*.exe
             artifacts/**/DesktopPlus-*.msi
             artifacts/**/DesktopPlus-*.zip
@@ -617,11 +629,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Off unless PUBLISH_LINUX_PACKAGES=true, which also puts Linux back in
+      # the build matrix above.
+      - name: Attach Linux release packages
+        if: vars.PUBLISH_LINUX_PACKAGES == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.release_notes.outputs.title }}
+          body: ${{ steps.release_notes.outputs.body }}
+          files: |
+            artifacts/**/DesktopPlus-*.AppImage
+            artifacts/**/DesktopPlus-*.AppImage.zsync
+            artifacts/**/DesktopPlus-*.deb
+            artifacts/**/DesktopPlus-*.rpm
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   release_aur:
     name: Publish AUR package
     needs: [release_github, compute_version]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # Linux package repositories are off unless PUBLISH_LINUX_PACKAGES=true.
+    if:
+      startsWith(github.ref, 'refs/tags/') && vars.PUBLISH_LINUX_PACKAGES ==
+      'true'
     permissions:
       contents: read
     env:
@@ -763,7 +795,10 @@ jobs:
     name: Publish RPM package
     needs: release_github
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # Linux package repositories are off unless PUBLISH_LINUX_PACKAGES=true.
+    if:
+      startsWith(github.ref, 'refs/tags/') && vars.PUBLISH_LINUX_PACKAGES ==
+      'true'
     permissions:
       contents: read
     steps:
@@ -832,7 +867,10 @@ jobs:
     name: Publish DEB package
     needs: release_github
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # Linux package repositories are off unless PUBLISH_LINUX_PACKAGES=true.
+    if:
+      startsWith(github.ref, 'refs/tags/') && vars.PUBLISH_LINUX_PACKAGES ==
+      'true'
     permissions:
       contents: read
     steps:
