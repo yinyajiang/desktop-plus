@@ -1,4 +1,4 @@
-import { TokenStore } from '../stores'
+import { TokenStore } from '../stores/token-store'
 import {
   getSSHCredentialStoreKey,
   setMostRecentSSHCredential,

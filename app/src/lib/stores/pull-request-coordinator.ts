@@ -5,7 +5,7 @@ import {
   isRepositoryWithGitHubRepository,
   getNonForkGitHubRepository,
 } from '../../models/repository'
-import { PullRequestStore } from '.'
+import { PullRequestStore } from './pull-request-store'
 import { PullRequestUpdater } from './helpers/pull-request-updater'
 import { RepositoriesStore } from './repositories-store'
 import { GitHubRepository } from '../../models/github-repository'

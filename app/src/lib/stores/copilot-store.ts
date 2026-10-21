@@ -47,6 +47,7 @@ import { BaseStore } from './base-store'
 import { IRepoRulesMetadataRule } from '../../models/repo-rules'
 import { pathExists } from '../path-exists'
 import { enableCopilotSdkCommitMessageGeneration } from '../feature-flag'
+import { DefaultCopilotModel } from '../copilot/default-model'
 import type { AccountQuotaSnapshot, Model } from '../copilot/types'
 import { isGHE } from '../endpoint-capabilities'
 import {
@@ -54,8 +55,7 @@ import {
   CopilotConflictResolutionFailureStage,
 } from '../copilot-conflict-resolution-error'
 
-/** The default model ID used for Copilot commit message generation. */
-export const DefaultCopilotModel = 'auto'
+export { DefaultCopilotModel }
 
 /**
  * The reasoning effort used for Copilot conflict resolution when the selected

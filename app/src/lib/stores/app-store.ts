@@ -48,6 +48,16 @@ import type {
 } from './copilot-store'
 import { DisabledCopilotModel } from './copilot-store'
 import {
+  showChangesFilterDefault,
+  showChangesFilterKey,
+  showDiffCheckMarksDefault,
+  showDiffCheckMarksKey,
+  underlineLinksDefault,
+  underlineLinksKey,
+  useCustomEditorKey,
+  useCustomShellKey,
+} from './ui-preference-keys'
+import {
   CommitMessageGenerationCancelledError,
   getCopilotAccountCacheKey,
   migrateCopilotModelSelectionsToAccounts,
@@ -521,6 +531,17 @@ import {
   setSnoozedRepositories,
 } from './repository-snoozing'
 
+export {
+  showChangesFilterDefault,
+  showChangesFilterKey,
+  showDiffCheckMarksDefault,
+  showDiffCheckMarksKey,
+  underlineLinksDefault,
+  underlineLinksKey,
+  useCustomEditorKey,
+  useCustomShellKey,
+}
+
 const LastSelectedRepositoryIDKey = 'last-selected-repository-id'
 
 /** Keeps the snooze expiry timer within setTimeout's 32-bit delay limit */
@@ -656,20 +677,12 @@ const lastThankYouKey = 'version-and-users-of-last-thank-you'
 const pullRequestSuggestedNextActionKey =
   'pull-request-suggested-next-action-key'
 
-export const useCustomEditorKey = 'use-custom-editor'
 const customEditorKey = 'custom-editor'
 const copilotAppPathKey = 'copilot-app-path'
 
-export const useCustomShellKey = 'use-custom-shell'
 const customShellKey = 'custom-shell'
 
 const branchPresetScriptKey = 'branch-preset-script'
-
-export const underlineLinksKey = 'underline-links'
-export const underlineLinksDefault = true
-
-export const showDiffCheckMarksDefault = true
-export const showDiffCheckMarksKey = 'diff-check-marks-visible'
 
 const alwaysShowWorktreeListKey = 'always-show-worktree-list'
 
@@ -692,13 +705,10 @@ const copilotConflictResolutionClickCountKey =
 const alwaysUseCopilotForConflictResolutionKey =
   'always-use-copilot-for-conflict-resolution'
 
-export const showChangesFilterKey = 'show-changes-filter'
-
 // TODO: to be removed after the migration period. Now Copilot models are stored
 // per account, not globally.
 const selectedCopilotModelsKey = 'selected-copilot-models'
 const selectedCopilotModelsByAccountKey = 'selected-copilot-models-by-account'
-export const showChangesFilterDefault = true
 
 const showViewModeSwitchesKey = 'show-view-mode-switches'
 const showViewModeSwitchesDefault = true
