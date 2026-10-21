@@ -936,7 +936,10 @@ jobs:
     name: Publish winget package
     needs: [release_github, compute_version]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # Permanently off. Tag releases failed when WINGET_TOKEN was missing.
+    # Restore publishing only by editing this condition; do not add a secret
+    # or repository variable to turn it back on.
+    if: false
     permissions: {}
     steps:
       - name: Publish to winget
@@ -952,7 +955,10 @@ jobs:
     name: Publish Homebrew cask
     needs: [release_github, compute_version]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    # Permanently off. Tag releases failed when the Homebrew tap tokens were
+    # missing. Restore publishing only by editing this condition; do not add a
+    # secret or repository variable to turn it back on.
+    if: false
     permissions:
       contents: read
     env:
