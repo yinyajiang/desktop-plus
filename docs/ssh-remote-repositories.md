@@ -3,16 +3,35 @@
 Desktop Plus can open a Git repository that lives on another machine and run
 the usual repository workflows over the system OpenSSH client (`ssh`).
 
-The connection form asks you to type `user@host`, an optional port, and an
-optional identity-file path. It does not read `~/.ssh/config` to offer a list
-of hosts. The `ssh` process itself still uses your agent, keys, and
-`known_hosts` the same way a terminal session does.
+The connection dialog has two modes.
+
+**SSH config** lists `Host` aliases from `~/.ssh/config` and its `Include`
+files. A pattern that is `*` or contains `*` or `?` is hidden. Choosing an
+alias shows the `User`, `HostName`, `Port`, and `IdentityFile` that OpenSSH
+would use (`ssh -G`). The repository stores that resolved user, host, port,
+and key. A port or identity file that OpenSSH left at its default is not
+written into the connection, so later `ssh` commands do not override your
+config with those defaults.
+
+**Manual** keeps the `user@host` form, plus an optional port and identity
+file. You can also type only a Host alias. Leave port and identity file empty
+to keep the values from your SSH config.
+
+If the config cannot be read, or it has no usable hosts, the dialog opens in
+Manual mode and says why. The `ssh` process itself still uses your agent,
+keys, and `known_hosts` the same way a terminal session does.
+
+Options that exist only on the alias, such as `ProxyJump`, are not copied
+into the saved connection. Put those options on a `Host` pattern that matches
+the resolved host name, or connect in Manual mode as `user@alias` and leave
+port and identity file empty so OpenSSH keeps reading that alias.
 
 ## Try it
 
 1. Start Desktop Plus.
 2. File → Connect to SSH Host… (or the repository list + menu).
-3. Enter `user@host`. Add a port or identity file only when you need them.
+3. Choose a host from your SSH config, or enter `user@host` (or only a Host
+   alias). Add a port or identity file only when you need them.
 4. Connect. Confirm any host-key, passphrase, or password prompt.
 5. Type an absolute remote path (or browse from the home directory) and add it.
 

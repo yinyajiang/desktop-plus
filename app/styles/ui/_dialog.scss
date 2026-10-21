@@ -681,12 +681,46 @@ dialog {
   }
 
   &#connect-ssh-host {
-    width: 480px;
+    width: 520px;
 
     .ssh-remote-note {
       font-size: var(--font-size-sm);
       color: var(--text-secondary-color);
       margin-top: 0;
+    }
+
+    .ssh-connect-mode-row {
+      align-items: center;
+    }
+
+    .ssh-connect-mode {
+      display: flex;
+      gap: var(--spacing);
+
+      .radio-button-component + .radio-button-component {
+        margin-top: 0;
+      }
+    }
+
+    .ssh-config-hosts select {
+      min-height: 140px;
+    }
+
+    .ssh-config-preview {
+      margin-top: var(--spacing);
+      font-size: var(--font-size-sm);
+
+      div {
+        display: flex;
+        gap: var(--spacing);
+        margin-bottom: var(--spacing-half);
+      }
+    }
+
+    .ssh-config-preview-label {
+      width: 7.5em;
+      flex: 0 0 7.5em;
+      color: var(--text-secondary-color);
     }
 
     .ssh-remote-browser {

@@ -152,8 +152,7 @@ jobs:
               ${{ vars.PUBLISH_LINUX_PACKAGES == 'true' && 'ubuntu-latest' ||
               'macos-14' }}
             friendlyName:
-              ${{ vars.PUBLISH_LINUX_PACKAGES == 'true' && 'Linux' || 'macOS'
-              }}
+              ${{ vars.PUBLISH_LINUX_PACKAGES == 'true' && 'Linux' || 'macOS' }}
     timeout-minutes: 60
     environment: ${{ inputs.environment }}
     env:

@@ -2,7 +2,7 @@ Desktop Plus v3.6.8-beta4
 
 ## Changes and improvements:
 
-- Connect to an SSH host and add a Git repository that lives on that machine. Type `user@host`, and a port or identity file only when you need them. Desktop does not read `~/.ssh/config` to offer a list of hosts. The system OpenSSH client still uses your keys, agent, and `known_hosts`.
+- Connect to an SSH host and add a Git repository that lives on that machine. Choose a host from `~/.ssh/config`, or type `user@host` (or only a Host alias). Add a port or identity file only when you need them. The saved connection stores the resolved user, host, port, and key. The system OpenSSH client still uses your keys, agent, and `known_hosts`.
 
 - The repository list marks the repository with an SSH badge. Status, diff, commit, checkout, creating a branch, push, and pull run Git on that host. In-progress merges, rebases, and cherry-picks are read from the remote repository.
 

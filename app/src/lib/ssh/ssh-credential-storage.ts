@@ -1,4 +1,6 @@
-import { TokenStore } from '../stores'
+// Direct import. The stores barrel also loads Copilot, and this module is
+// reached from the main and crash bundles via SSH repository checks.
+import { TokenStore } from '../stores/token-store'
 
 // Don't modify this string! This is used for storing data in the keychain
 const appName = __DEV__ ? 'GitHub Desktop Dev' : 'GitHub Desktop'

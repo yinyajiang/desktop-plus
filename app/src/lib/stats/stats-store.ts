@@ -22,7 +22,7 @@ import {
   underlineLinksKey,
   useCustomEditorKey,
   useCustomShellKey,
-} from '../stores'
+} from '../stores/ui-preference-keys'
 import { assertNever } from '../fatal-error'
 import {
   getNumber,
@@ -46,7 +46,7 @@ import { getUserAgent } from '../http'
 import { getHooksEnvEnabled } from '../hooks/config'
 import { enableNewStatsEndpoint } from '../feature-flag'
 import { parseModelKey } from '../copilot/byok'
-import { DefaultCopilotModel } from '../stores/copilot-store'
+import { DefaultCopilotModel } from '../copilot/default-model'
 import { getSystemNotificationsPermission } from '../notifications/notification-permission'
 import { TokenRefreshEvent } from '../credential-sessions'
 
