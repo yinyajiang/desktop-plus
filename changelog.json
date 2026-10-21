@@ -1,5 +1,9 @@
 {
   "releases": {
+    "3.6.8-beta5": [
+      "[New] List Host aliases from ~/.ssh/config when connecting to an SSH host, with manual entry as a fallback - #3",
+      "[Fixed] Build macOS x64 and Windows arm64 installers without packaging the Copilot native module into the main and crash processes - #3"
+    ],
     "3.6.8-beta3": [
       "[New] Connect to an SSH host and manage its Git repositories alongside local ones",
       "[Added] Open an SSH repository in the terminal and edit its remote .gitignore"
