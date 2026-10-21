@@ -587,14 +587,23 @@ export class ConnectSSHHost extends React.Component<
         selectedRecent: recentKey,
         // A config-mode connection is stored as concrete user@host fields.
         // Mirror them into the manual form so switching modes shows the same
-        // connection the repository will keep.
-        ...(state.mode === 'config'
-          ? {
-              connection: `${location.user}@${location.hostname}`,
-              port: location.port === null ? '' : String(location.port),
-              identityFile: location.identityFile ?? '',
-            }
-          : {}),
+        // connection the repository will keep. Manual mode keeps the text the
+        // user already typed. These are always strings so setState matches
+        // IConnectSSHHostState; unset OpenSSH defaults stay null on `location`.
+        connection:
+          state.mode === 'config'
+            ? `${location.user}@${location.hostname}`
+            : state.connection,
+        port:
+          state.mode === 'config'
+            ? location.port === null
+              ? ''
+              : String(location.port)
+            : state.port,
+        identityFile:
+          state.mode === 'config'
+            ? location.identityFile ?? ''
+            : state.identityFile,
       }))
       await this.listDirectory(location, home)
     } catch (error) {
