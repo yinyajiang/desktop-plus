@@ -1,3 +1,5 @@
+import { randomBytes } from 'crypto'
+import { tmpdir } from 'os'
 import * as Path from 'path'
 
 import { getBlobContents } from './show'
@@ -418,6 +420,42 @@ export interface IResolutionDiff {
 }
 
 /**
+ * Working directory and global git arguments for the `--no-index` diff.
+ *
+ * Local repositories keep using their own checkout so repo diff settings
+ * still apply. An SSH repository's temp files exist only on this machine, so
+ * the diff must not be sent to the host. It also must not run inside whatever
+ * directory the app was launched from: a parent repository there can make git
+ * abort (`fatal: not a git repository`) or rewrite the patch through
+ * `core.autocrlf` and `.gitattributes`.
+ */
+export function getResolutionDiffExecution(repository: Repository): {
+  readonly path: string
+  readonly prefixArgs: readonly string[]
+} {
+  if (repository.sshRemote === null) {
+    return { path: repository.path, prefixArgs: [] }
+  }
+
+  return {
+    path: tmpdir(),
+    prefixArgs: [
+      // A missing git dir stops discovery of an unrelated repository,
+      // including one found by walking up from the temp directory.
+      '--git-dir',
+      Path.join(
+        tmpdir(),
+        `dplus-resolution-no-git-${randomBytes(8).toString('hex')}`
+      ),
+      '-c',
+      'core.autocrlf=false',
+      '-c',
+      'core.safecrlf=false',
+    ],
+  }
+}
+
+/**
  * Compute a diff between the working-tree file and either Copilot's
  * resolved content string or the content from a specific merge index stage.
  *
@@ -494,7 +532,9 @@ export async function getResolutionDiff(
     await writeFile(tempBase, baseContent, 'utf8')
     await writeFile(tempTarget, targetContent, 'utf8')
 
+    const execution = getResolutionDiffExecution(repository)
     const args = [
+      ...execution.prefixArgs,
       'diff',
       ...(hideWhitespaceInDiff ? ['-w'] : []),
       '--no-ext-diff',
@@ -507,12 +547,7 @@ export async function getResolutionDiff(
       tempTarget,
     ]
 
-    // `--no-index` only touches the two local temp files written above, so
-    // it must run on this machine. An SSH repository would send the command
-    // to the host, where these paths do not exist.
-    const diffPath =
-      repository.sshRemote === null ? repository.path : process.cwd()
-    const { stdout } = await git(args, diffPath, 'getResolutionDiff', {
+    const { stdout } = await git(args, execution.path, 'getResolutionDiff', {
       successExitCodes: new Set([0, 1]),
       encoding: 'buffer',
     })

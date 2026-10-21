@@ -2,6 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert'
 import { spawnSync } from 'node:child_process'
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   rmSync,
@@ -143,6 +144,7 @@ describe('SSH remote locations', () => {
 
   it('passes the typed host to ssh and does not disable host checking or point at a config file', () => {
     const args = buildSshArgs(location, null)
+    assert.equal(args.at(-2), '--')
     assert.equal(args.at(-1), 'ada@dev.example.com')
     assert.equal(args.includes('-p'), true)
     assert.equal(args[args.indexOf('-p') + 1], '2222')
@@ -175,6 +177,66 @@ describe('SSH remote locations', () => {
       interactive[interactiveSeparator + 1],
       '-oProxyCommand=evil@dev.example.com'
     )
+  })
+
+  it('passes a leading-dash identity file as a path operand', () => {
+    const identity = '-oProxyCommand=evil'
+    const args = buildSshArgs({ ...location, identityFile: identity }, null)
+    const identityFlag = args.indexOf('-i')
+    assert.equal(args[identityFlag + 1], identity)
+    const separator = args.lastIndexOf('--')
+    assert.ok(separator > identityFlag)
+    assert.equal(args[separator + 1], 'ada@dev.example.com')
+  })
+
+  it('keeps a leading-dash hostname inside the destination', () => {
+    const args = buildSshArgs(
+      {
+        ...location,
+        hostname: '-evil.example',
+        port: null,
+        identityFile: null,
+      },
+      null
+    )
+    const separator = args.lastIndexOf('--')
+    assert.equal(args[separator + 1], 'ada@-evil.example')
+    assert.equal(args[separator + 1].startsWith('-'), false)
+    assert.equal(args.includes('-p'), false)
+  })
+
+  it('does not run a ProxyCommand smuggled in the user name', t => {
+    const probe = spawnSync('ssh', ['-V'], { encoding: 'utf8' })
+    if (probe.error !== undefined) {
+      t.skip('ssh is not installed')
+      return
+    }
+
+    const marker = join(tmpdir(), `dplus-ssh-inject-${process.pid}`)
+    rmSync(marker, { force: true })
+    try {
+      const user = `-oProxyCommand=touch\${IFS}${marker}`
+      const args = [
+        ...buildSshArgs(
+          {
+            ...location,
+            user,
+            hostname: '127.0.0.1',
+            port: 1,
+            identityFile: null,
+          },
+          null
+        ),
+        'true',
+      ]
+      const result = spawnSync('ssh', args, {
+        encoding: 'utf8',
+        timeout: 8000,
+      })
+      assert.equal(existsSync(marker), false, result.stderr)
+    } finally {
+      rmSync(marker, { force: true })
+    }
   })
 
   it('leaves identity selection to ssh when the user did not type a key path', () => {
@@ -392,6 +454,9 @@ describe('SSH remote locations', () => {
       remotePath: "/home/ada/ada's repo",
     })
     assert.equal(args.includes('-t'), true)
+    const separator = args.lastIndexOf('--')
+    assert.equal(args[separator - 1], '-t')
+    assert.equal(args[separator + 1], 'ada@dev.example.com')
     assert.equal(args.includes('-F'), false)
     assert.equal(args.includes('StrictHostKeyChecking=no'), false)
     assert.equal(args.includes('UserKnownHostsFile=/dev/null'), false)
