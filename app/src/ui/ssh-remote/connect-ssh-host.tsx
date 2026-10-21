@@ -7,6 +7,7 @@ import { Button } from '../lib/button'
 import { TextBox } from '../lib/text-box'
 import { Row } from '../lib/row'
 import { Select } from '../lib/select'
+import { RadioGroup } from '../lib/radio-group'
 import { Dialog, DialogContent, DialogError, DialogFooter } from '../dialog'
 import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
 import { FoldoutType } from '../../lib/app-state'
@@ -14,8 +15,14 @@ import {
   ISshRemoteLocation,
   formatSshRemoteLocation,
   isValidPort,
-  parseSshConnectionInput,
+  parseSshManualConnectionInput,
 } from '../../lib/ssh/ssh-remote-location'
+import {
+  ISshConfigHostEndpoint,
+  listSshConfigHostAliases,
+  resolveManualSshConnection,
+  resolveSshConfigHost,
+} from '../../lib/ssh/ssh-config-hosts'
 import {
   ISshRecentHost,
   formatSshRecentHost,
@@ -30,6 +37,8 @@ import {
   probeSshRepository,
   testSshConnection,
 } from '../../lib/ssh/ssh-remote-git'
+
+type SshConnectMode = 'config' | 'manual'
 
 class RemoteDirectoryButton extends React.Component<{
   readonly name: string
@@ -50,6 +59,15 @@ interface IConnectSSHHostProps {
 }
 
 interface IConnectSSHHostState {
+  readonly mode: SshConnectMode
+  readonly modeChosen: boolean
+  readonly hostAliases: ReadonlyArray<string>
+  readonly hostFilter: string
+  readonly selectedAlias: string
+  readonly preview: ISshConfigHostEndpoint | null
+  readonly resolvingAlias: boolean
+  readonly loadingHosts: boolean
+  readonly configHint: string | null
   readonly connection: string
   readonly port: string
   readonly identityFile: string
@@ -63,17 +81,31 @@ interface IConnectSSHHostState {
 }
 
 /**
- * Add an SSH host by typing the connection, then add a Git repository that
- * lives on that host. Hosts are not loaded from ~/.ssh/config.
+ * Add an SSH host, then add a Git repository that lives on that host.
+ *
+ * SSH config mode lists Host aliases from ~/.ssh/config. Manual mode still
+ * accepts user@host, and also a Host alias with optional fields left blank.
  */
 export class ConnectSSHHost extends React.Component<
   IConnectSSHHostProps,
   IConnectSSHHostState
 > {
+  private alive = true
+  private aliasRequest = 0
+
   public constructor(props: IConnectSSHHostProps) {
     super(props)
 
     this.state = {
+      mode: 'config',
+      modeChosen: false,
+      hostAliases: [],
+      hostFilter: '',
+      selectedAlias: '',
+      preview: null,
+      resolvingAlias: false,
+      loadingHosts: true,
+      configHint: null,
       connection: '',
       port: '',
       identityFile: '',
@@ -85,6 +117,14 @@ export class ConnectSSHHost extends React.Component<
       error: null,
       busy: false,
     }
+  }
+
+  public componentDidMount() {
+    this.loadHosts()
+  }
+
+  public componentWillUnmount() {
+    this.alive = false
   }
 
   public render() {
@@ -104,53 +144,192 @@ export class ConnectSSHHost extends React.Component<
         ) : null}
 
         <DialogContent>
-          <p className="ssh-remote-note">
-            Type the connection yourself, for example ada@dev.example.com.
-            Desktop Plus does not load hosts from your SSH config. The system
-            ssh command still uses your agent, keys, and known_hosts.
-          </p>
-
-          {this.renderRecentHosts()}
-
-          <Row>
-            <TextBox
-              label="Connection"
-              placeholder="user@host"
-              value={this.state.connection}
-              autoFocus={true}
-              onValueChanged={this.onConnectionChanged}
-            />
-          </Row>
-          <Row>
-            <TextBox
-              label="Port"
-              placeholder="22"
-              value={this.state.port}
-              onValueChanged={this.onPortChanged}
-            />
-          </Row>
-          <Row>
-            <TextBox
-              label="Identity file"
-              placeholder="Optional path to a private key"
-              value={this.state.identityFile}
-              onValueChanged={this.onIdentityFileChanged}
-            />
-          </Row>
-
+          {this.renderModeSwitch()}
+          {this.state.configHint ? (
+            <p className="ssh-remote-note">{this.state.configHint}</p>
+          ) : null}
+          {this.state.mode === 'config'
+            ? this.renderConfigMode()
+            : this.renderManualMode()}
           {connected ? this.renderRemotePath() : null}
         </DialogContent>
 
         <DialogFooter>
           <OkCancelButtonGroup
             okButtonText={connected ? 'Add repository' : 'Connect'}
-            okButtonDisabled={
-              this.state.busy ||
-              (connected && this.state.remotePath.trim().length === 0)
-            }
+            okButtonDisabled={this.isSubmitDisabled(connected)}
           />
         </DialogFooter>
       </Dialog>
+    )
+  }
+
+  private isSubmitDisabled(connected: boolean): boolean {
+    if (this.state.busy) {
+      return true
+    }
+    if (connected) {
+      return this.state.remotePath.trim().length === 0
+    }
+    if (this.state.mode === 'config') {
+      return this.state.preview === null || this.state.resolvingAlias
+    }
+    return false
+  }
+
+  private renderModeSwitch() {
+    return (
+      <Row className="ssh-connect-mode-row">
+        <span id="ssh-connect-mode-label">Connect with</span>
+        <RadioGroup<SshConnectMode>
+          ariaLabelledBy="ssh-connect-mode-label"
+          className="ssh-connect-mode"
+          selectedKey={this.state.mode}
+          radioButtonKeys={['config', 'manual']}
+          onSelectionChanged={this.onModeChanged}
+          renderRadioButtonLabelContents={this.renderModeLabel}
+        />
+      </Row>
+    )
+  }
+
+  private renderModeLabel = (mode: SshConnectMode) => {
+    return mode === 'config' ? 'SSH config' : 'Manual'
+  }
+
+  private renderConfigMode() {
+    const filtered = this.filteredAliases()
+    const selectionInList = filtered.includes(this.state.selectedAlias)
+
+    return (
+      <>
+        <p className="ssh-remote-note">
+          Choose a host from your SSH config. The repository saves the resolved
+          user, host, port, and key. Port and identity file are left unset when
+          your config did not set them.
+        </p>
+        <Row>
+          <TextBox
+            label="Filter hosts"
+            placeholder="Search host aliases"
+            value={this.state.hostFilter}
+            autoFocus={true}
+            onValueChanged={this.onHostFilterChanged}
+          />
+        </Row>
+        <div className="select-component ssh-config-hosts">
+          <label htmlFor="ssh-config-host-list">Host</label>
+          <select
+            id="ssh-config-host-list"
+            size={8}
+            value={selectionInList ? this.state.selectedAlias : ''}
+            onChange={this.onAliasSelected}
+          >
+            <option value="">
+              {filtered.length === 0
+                ? this.state.loadingHosts
+                  ? 'Reading SSH config…'
+                  : 'No matching hosts'
+                : 'Choose a host'}
+            </option>
+            {filtered.map(alias => (
+              <option key={alias} value={alias}>
+                {alias}
+              </option>
+            ))}
+          </select>
+        </div>
+        {this.renderPreview()}
+      </>
+    )
+  }
+
+  private renderPreview() {
+    if (this.state.resolvingAlias) {
+      return <p className="ssh-remote-note">Reading host settings…</p>
+    }
+
+    const preview = this.state.preview
+    if (preview === null || preview.alias !== this.state.selectedAlias) {
+      return null
+    }
+
+    const identity =
+      preview.identityFiles.length === 0
+        ? 'Default'
+        : preview.identityFiles.join(', ')
+
+    return (
+      <>
+        <div className="ssh-config-preview">
+          <div>
+            <span className="ssh-config-preview-label">User</span>
+            <span>{preview.user}</span>
+          </div>
+          <div>
+            <span className="ssh-config-preview-label">HostName</span>
+            <span>{preview.hostname}</span>
+          </div>
+          <div>
+            <span className="ssh-config-preview-label">Port</span>
+            <span>
+              {preview.port === null ? 'Default' : String(preview.port)}
+            </span>
+          </div>
+          <div>
+            <span className="ssh-config-preview-label">IdentityFile</span>
+            <span>{identity}</span>
+          </div>
+        </div>
+        {preview.identityFiles.length > 1 ? (
+          <p className="ssh-remote-note">
+            The saved connection uses the first identity file.
+          </p>
+        ) : null}
+        {preview.source === 'config-file' ? (
+          <p className="ssh-remote-note">
+            These values were not confirmed with ssh -G.
+          </p>
+        ) : null}
+      </>
+    )
+  }
+
+  private renderManualMode() {
+    return (
+      <>
+        <p className="ssh-remote-note">
+          Enter user@host, or only a Host alias. Leave port and identity file
+          empty to keep the values from your SSH config. The system ssh command
+          still uses your agent, keys, and known_hosts.
+        </p>
+        {this.renderRecentHosts()}
+        <Row>
+          <TextBox
+            label="Connection"
+            placeholder="user@host or host alias"
+            value={this.state.connection}
+            autoFocus={!this.state.loadingHosts}
+            onValueChanged={this.onConnectionChanged}
+          />
+        </Row>
+        <Row>
+          <TextBox
+            label="Port"
+            placeholder="22"
+            value={this.state.port}
+            onValueChanged={this.onPortChanged}
+          />
+        </Row>
+        <Row>
+          <TextBox
+            label="Identity file"
+            placeholder="Optional path to a private key"
+            value={this.state.identityFile}
+            onValueChanged={this.onIdentityFileChanged}
+          />
+        </Row>
+      </>
     )
   }
 
@@ -213,6 +392,117 @@ export class ConnectSSHHost extends React.Component<
     )
   }
 
+  private filteredAliases(): readonly string[] {
+    const filter = this.state.hostFilter.trim().toLowerCase()
+    if (filter.length === 0) {
+      return this.state.hostAliases
+    }
+    return this.state.hostAliases.filter(alias =>
+      alias.toLowerCase().includes(filter)
+    )
+  }
+
+  private loadHosts = async () => {
+    let listed: { aliases: ReadonlyArray<string>; hint: string | null }
+    try {
+      listed = await listSshConfigHostAliases()
+    } catch {
+      listed = {
+        aliases: [],
+        hint: "Couldn't read ~/.ssh/config. Enter the connection manually.",
+      }
+    }
+
+    if (!this.alive) {
+      return
+    }
+
+    this.setState(state => {
+      const noHosts = listed.aliases.length === 0
+      const mode = state.modeChosen ? state.mode : noHosts ? 'manual' : 'config'
+      return {
+        hostAliases: listed.aliases,
+        configHint: listed.hint,
+        loadingHosts: false,
+        mode,
+      }
+    })
+  }
+
+  private onModeChanged = (mode: SshConnectMode) => {
+    this.aliasRequest++
+    this.setState({
+      mode,
+      modeChosen: true,
+      resolvingAlias: false,
+      connectedLocation: null,
+      directories: [],
+      error: null,
+    })
+  }
+
+  private onHostFilterChanged = (hostFilter: string) => {
+    this.setState({ hostFilter })
+  }
+
+  private onAliasSelected = (event: React.FormEvent<HTMLSelectElement>) => {
+    const alias = event.currentTarget.value
+    if (alias.length === 0) {
+      this.aliasRequest++
+      this.setState({
+        selectedAlias: '',
+        preview: null,
+        resolvingAlias: false,
+        connectedLocation: null,
+        directories: [],
+        error: null,
+      })
+      return
+    }
+
+    if (alias === this.state.selectedAlias && this.state.preview) {
+      return
+    }
+
+    const request = ++this.aliasRequest
+    this.setState({
+      selectedAlias: alias,
+      preview: null,
+      resolvingAlias: true,
+      connectedLocation: null,
+      directories: [],
+      error: null,
+    })
+    this.resolveAlias(alias, request)
+  }
+
+  private resolveAlias = async (alias: string, request: number) => {
+    try {
+      const preview = await resolveSshConfigHost(alias)
+      if (!this.alive || request !== this.aliasRequest) {
+        return
+      }
+      if (preview === null) {
+        this.setState({
+          resolvingAlias: false,
+          preview: null,
+          error: `Couldn't read SSH settings for ${alias}.`,
+        })
+        return
+      }
+      this.setState({ preview, resolvingAlias: false, error: null })
+    } catch (error) {
+      if (!this.alive || request !== this.aliasRequest) {
+        return
+      }
+      this.setState({
+        resolvingAlias: false,
+        preview: null,
+        error: errorMessage(error),
+      })
+    }
+  }
+
   private onConnectionChanged = (connection: string) => {
     this.setState({
       connection,
@@ -267,7 +557,7 @@ export class ConnectSSHHost extends React.Component<
   }
 
   private onSubmit = () => {
-    if (this.state.busy) {
+    if (this.state.busy || this.state.resolvingAlias) {
       return
     }
 
@@ -279,7 +569,7 @@ export class ConnectSSHHost extends React.Component<
   }
 
   private connect = async () => {
-    const location = this.readLocation(null)
+    const location = await this.readLocation()
     if (location === null) {
       return
     }
@@ -289,12 +579,23 @@ export class ConnectSSHHost extends React.Component<
       await testSshConnection(location)
       const home = await expandRemotePath(location, '~')
       const recentHosts = rememberSshHost(recentHostFromLocation(location))
-      this.setState({
+      const recentKey = sshRecentHostKey(recentHostFromLocation(location))
+      this.setState(state => ({
         connectedLocation: location,
         remotePath: home,
         recentHosts,
-        selectedRecent: sshRecentHostKey(recentHostFromLocation(location)),
-      })
+        selectedRecent: recentKey,
+        // A config-mode connection is stored as concrete user@host fields.
+        // Mirror them into the manual form so switching modes shows the same
+        // connection the repository will keep.
+        ...(state.mode === 'config'
+          ? {
+              connection: `${location.user}@${location.hostname}`,
+              port: location.port === null ? '' : String(location.port),
+              identityFile: location.identityFile ?? '',
+            }
+          : {}),
+      }))
       await this.listDirectory(location, home)
     } catch (error) {
       this.setState({ error: errorMessage(error) })
@@ -409,38 +710,70 @@ export class ConnectSSHHost extends React.Component<
   }
 
   /**
-   * Build a location from the form. `remotePath` is filled in after connect;
-   * pass null while connecting and the placeholder is replaced later.
+   * Build a location from the form. `remotePath` is filled in after connect.
+   * The value persisted later is this same concrete connection.
    */
-  private readLocation(remotePath: string | null): ISshRemoteLocation | null {
-    const parsed = parseSshConnectionInput(this.state.connection)
+  private readLocation = async (): Promise<ISshRemoteLocation | null> => {
+    if (this.state.mode === 'config') {
+      return this.readConfigLocation()
+    }
+    return this.readManualLocation()
+  }
+
+  private readConfigLocation(): ISshRemoteLocation | null {
+    const preview = this.state.preview
+    if (
+      preview === null ||
+      preview.alias !== this.state.selectedAlias ||
+      this.state.resolvingAlias
+    ) {
+      this.setState({ error: 'Choose a host from your SSH config.' })
+      return null
+    }
+
+    return {
+      user: preview.user,
+      hostname: preview.hostname,
+      port: preview.port,
+      identityFile: preview.identityFile,
+      remotePath: '/',
+    }
+  }
+
+  private readManualLocation = async (): Promise<ISshRemoteLocation | null> => {
+    const parsed = parseSshManualConnectionInput(this.state.connection)
     if (parsed === null) {
       this.setState({
         error:
-          'Enter a connection like user@host. An optional :port is allowed.',
+          'Enter a connection like user@host, or a Host alias. An optional :port is allowed on user@host.',
       })
       return null
     }
 
-    let port = parsed.port
     const portText = this.state.port.trim()
+    let portOverride: number | null = null
     if (portText.length > 0) {
       const parsedPort = Number(portText)
       if (!isValidPort(parsedPort)) {
         this.setState({ error: 'Port must be a number from 1 to 65535.' })
         return null
       }
-      port = parsedPort
+      portOverride = parsedPort
     }
 
     const identityText = this.state.identityFile.trim()
-    return {
-      user: parsed.user,
-      hostname: parsed.hostname,
-      port,
+    const fields = await resolveManualSshConnection(parsed, {
+      port: portOverride,
       identityFile: identityText.length > 0 ? untildify(identityText) : null,
-      remotePath: remotePath ?? '/',
+    })
+    if (fields === null) {
+      const alias =
+        parsed.kind === 'alias' ? parsed.alias : this.state.connection
+      this.setState({ error: `Couldn't resolve SSH host ${alias}.` })
+      return null
     }
+
+    return { ...fields, remotePath: '/' }
   }
 }
 

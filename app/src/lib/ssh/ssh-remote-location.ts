@@ -3,9 +3,11 @@ import { posix } from 'path'
 /**
  * Virtual path prefix for a Git repository that lives on an SSH host.
  *
- * The value after the prefix is a base64url JSON payload. It is an app
- * identifier, not a path on the local disk, and it is never produced by
- * reading ~/.ssh/config.
+ * The value after the prefix is a base64url JSON payload of the concrete
+ * connection (user, host, port, identity file, and remote path). It is an
+ * app identifier, not a path on the local disk. A Host alias from SSH config
+ * is resolved before it is stored, so the record does not depend on that
+ * alias still existing on this machine.
  */
 const SshRemotePathPrefix = 'desktop-ssh:'
 
@@ -98,7 +100,8 @@ export function formatSshRemoteLabel(location: ISshRemoteLocation): string {
  * IPv6 hosts must be wrapped in brackets (`user@[::1]`).
  *
  * This does not look at SSH config. A dedicated port field in the UI overrides
- * a port included here.
+ * a port included here. A bare Host alias is accepted by
+ * {@link parseSshManualConnectionInput} instead of this function.
  */
 export function parseSshConnectionInput(
   input: string
@@ -129,6 +132,73 @@ export function parseSshConnectionInput(
 
 export function isValidPort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65535
+}
+
+const MaxSshAliasLength = 255
+
+/**
+ * A concrete host token that can be passed to `ssh -G --`.
+ *
+ * Wildcard patterns, negated patterns, and values ssh would treat as an
+ * option are rejected.
+ */
+export function isQueryableSshHostAlias(value: string): boolean {
+  if (value.length === 0 || value.length > MaxSshAliasLength) {
+    return false
+  }
+  if (value.startsWith('-') || value.startsWith('!')) {
+    return false
+  }
+  if (value.includes('*') || value.includes('?')) {
+    return false
+  }
+  if (value.includes('@')) {
+    return false
+  }
+  if (/[\s\u0000-\u001f\u007f]/.test(value)) {
+    return false
+  }
+
+  return true
+}
+
+export type SshManualConnectionInput =
+  | {
+      readonly kind: 'explicit'
+      readonly user: string
+      readonly hostname: string
+      readonly port: number | null
+    }
+  | { readonly kind: 'alias'; readonly alias: string }
+
+/**
+ * Parse the manual connection field.
+ *
+ * `user@host` and `user@host:port` keep their previous meaning. A single Host
+ * alias or hostname is also accepted. Port and identity file are not filled
+ * in here, so a blank optional field can stay unset.
+ */
+export function parseSshManualConnectionInput(
+  input: string
+): SshManualConnectionInput | null {
+  const explicit = parseSshConnectionInput(input)
+  if (explicit) {
+    return {
+      kind: 'explicit',
+      user: explicit.user,
+      hostname: explicit.hostname,
+      port: explicit.port,
+    }
+  }
+
+  const alias = input.trim()
+  // `host:port` without a user stays invalid. The port belongs in the port
+  // field, or in `user@host:port`.
+  if (!isQueryableSshHostAlias(alias) || alias.includes(':')) {
+    return null
+  }
+
+  return { kind: 'alias', alias }
 }
 
 /**

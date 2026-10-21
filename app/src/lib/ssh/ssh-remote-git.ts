@@ -1,10 +1,10 @@
 import { spawn, ChildProcess } from 'child_process'
 import { createHash } from 'crypto'
-import { existsSync } from 'fs'
 import { mkdir } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, posix } from 'path'
 import { withSshAskpassEnv } from '../trampoline/trampoline-environment'
+import { findSystemSsh } from './find-system-ssh'
 import { deleteMostRecentSSHCredential } from './ssh-credential-storage'
 import {
   ISshRemoteLocation,
@@ -80,24 +80,8 @@ interface ISshCommandResult {
 }
 
 let controlMasterUnsupported = process.platform === 'win32'
-let systemSshPath: string | null = null
 
-export function findSystemSsh(): string {
-  if (systemSshPath) {
-    return systemSshPath
-  }
-
-  if (process.platform === 'win32') {
-    const windowsOpenSSH = 'C:\\Windows\\System32\\OpenSSH\\ssh.exe'
-    if (existsSync(windowsOpenSSH)) {
-      systemSshPath = windowsOpenSSH
-      return systemSshPath
-    }
-  }
-
-  systemSshPath = 'ssh'
-  return systemSshPath
-}
+export { findSystemSsh }
 
 export async function testSshConnection(
   location: ISshRemoteLocation
