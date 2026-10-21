@@ -1,4 +1,4 @@
-Desktop Plus v3.6.8-beta5
+Desktop Plus v3.6.8-beta6
 
 ## Changes and improvements:
 
@@ -7,6 +7,10 @@ Desktop Plus v3.6.8-beta5
 - The repository list marks the repository with an SSH badge. Status, diff, commit, checkout, creating a branch, push, and pull run Git on that host. In-progress merges, rebases, and cherry-picks are read from the remote repository.
 
 - Open the remote repository in your terminal. Ignore files and edit `.gitignore` on the host. A symbolic link is not followed.
+
+## Changes since v3.6.8-beta5:
+
+- SSH remote repositories are grouped under their own sidebar heading, instead of under Other.
 
 ## Fixes since v3.6.8-beta4:
 

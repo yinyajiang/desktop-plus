@@ -1,5 +1,8 @@
 {
   "releases": {
+    "3.6.8-beta6": [
+      "[Added] Group SSH remote repositories under their own sidebar heading - #4"
+    ],
     "3.6.8-beta5": [
       "[New] List Host aliases from ~/.ssh/config when connecting to an SSH host, with manual entry as a fallback - #3",
       "[Fixed] Build macOS x64 and Windows arm64 installers without packaging the Copilot native module into the main and crash processes - #3"
