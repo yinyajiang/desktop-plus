@@ -1,4 +1,5 @@
 import { getStringArray, setStringArray } from '../local-storage'
+import { migrateRepositoryGroupKey } from '../../ui/repositories-list/group-repositories'
 
 const RepositoryGroupOrderKey = 'repository-group-order'
 
@@ -7,7 +8,7 @@ const RepositoryGroupOrderKey = 'repository-group-order'
  * an empty array if the groups are in their default order.
  */
 export function getRepositoryGroupOrder(): ReadonlyArray<string> {
-  return getStringArray(RepositoryGroupOrderKey)
+  return getStringArray(RepositoryGroupOrderKey).map(migrateRepositoryGroupKey)
 }
 
 /** Saves the order of the repository list groups chosen by the user. */

@@ -18,7 +18,7 @@ import { Owner } from '../../models/owner'
 
 export type RepositoryListGroup = (
   | {
-      kind: 'recent' | 'other' | 'pins'
+      kind: 'recent' | 'other' | 'pins' | 'ssh'
     }
   | {
       kind: 'dotcom'
@@ -30,6 +30,24 @@ export type RepositoryListGroup = (
       host: string
     }
 ) & { displayName: string | null }
+
+/** Default key for every SSH remote that has no manual group name. */
+const DefaultSshGroupKey = '3:ssh'
+
+/** Saved Other key from before the SSH group was inserted ahead of it. */
+const LegacyDefaultOtherGroupKey = '3:other'
+
+/** Default Other key. Sorts after the SSH group (`3:ssh`). */
+const DefaultOtherGroupKey = '4:other'
+
+/**
+ * Rewrites group keys saved before the SSH group existed.
+ *
+ * Manual group names use the `1:` prefix and are left unchanged.
+ */
+export function migrateRepositoryGroupKey(key: string): string {
+  return key === LegacyDefaultOtherGroupKey ? DefaultOtherGroupKey : key
+}
 
 /**
  * Returns a unique grouping key (string) for a repository group. Doubles as a
@@ -48,10 +66,13 @@ export const getGroupKey = (group: RepositoryListGroup) => {
         ? `1:${displayName}`
         : `1:${group.owner.login}:${group.login ?? group.owner.login}`
     case 'enterprise':
-      // Allow mixing together dotcom and enterprise repos when setting a group name manually
+      // Manual names share the `1:` prefix across dotcom, enterprise, SSH, and Other.
       return displayName ? `1:${displayName}` : `2:${group.host}`
+    case 'ssh':
+      // After every enterprise host (`2:`) and before Other.
+      return displayName ? `1:${displayName}` : DefaultSshGroupKey
     case 'other':
-      return displayName ? `1:${displayName}` : `3:other`
+      return displayName ? `1:${displayName}` : DefaultOtherGroupKey
     default:
       assertNever(group, `Unknown repository group kind ${kind}`)
   }
@@ -94,6 +115,12 @@ const getHostForRepository = (repo: RepositoryWithGitHubRepository) =>
 export const getGroupForRepository = (
   repo: Repositoryish
 ): RepositoryListGroup => {
+  // The working tree lives on an SSH host. That includes a checkout whose
+  // remote is GitHub: it is grouped with other SSH remotes, not by owner.
+  if (repo instanceof Repository && repo.sshRemote) {
+    return { kind: 'ssh', displayName: repo.groupName }
+  }
+
   if (repo instanceof Repository && isRepositoryWithGitHubRepository(repo)) {
     return isGHE(repo.gitHubRepository.endpoint) ||
       isGHES(repo.gitHubRepository.endpoint)

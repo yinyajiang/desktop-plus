@@ -1,4 +1,5 @@
 import { getStringArray, setStringArray } from '../local-storage'
+import { migrateRepositoryGroupKey } from '../../ui/repositories-list/group-repositories'
 
 const CollapsedRepositoryGroupsKey = 'collapsed-repository-groups'
 
@@ -6,7 +7,9 @@ const CollapsedRepositoryGroupsKey = 'collapsed-repository-groups'
  * The keys of the repository list groups that the user has collapsed in the sidebar.
  */
 export function getCollapsedRepositoryGroups(): ReadonlySet<string> {
-  return new Set(getStringArray(CollapsedRepositoryGroupsKey))
+  return new Set(
+    getStringArray(CollapsedRepositoryGroupsKey).map(migrateRepositoryGroupKey)
+  )
 }
 
 /**

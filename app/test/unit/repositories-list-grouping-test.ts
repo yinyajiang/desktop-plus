@@ -1,9 +1,36 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert'
-import { groupRepositories } from '../../src/ui/repositories-list/group-repositories'
+import {
+  getGroupKey,
+  groupRepositories,
+} from '../../src/ui/repositories-list/group-repositories'
 import { Repository, ILocalRepositoryState } from '../../src/models/repository'
 import { CloningRepository } from '../../src/models/cloning-repository'
 import { gitHubRepoFixture } from '../helpers/github-repo-builder'
+import { formatSshRemoteLocation } from '../../src/lib/ssh/ssh-remote-location'
+
+function sshRepository(
+  remotePathName: string,
+  id: number,
+  gitHubRepository: ReturnType<typeof gitHubRepoFixture> | null = null,
+  groupName: string | null = null,
+  hostname = 'build.example'
+) {
+  return new Repository(
+    formatSshRemoteLocation({
+      user: 'dev',
+      hostname,
+      port: null,
+      identityFile: null,
+      remotePath: `/srv/${remotePathName}`,
+    }),
+    id,
+    gitHubRepository,
+    false,
+    null,
+    groupName
+  )
+}
 
 describe('repository list grouping', () => {
   const repositories: Array<Repository | CloningRepository> = [
@@ -24,13 +51,14 @@ describe('repository list grouping', () => {
       }),
       false
     ),
+    sshRepository('repo4', 4),
   ]
 
   const cache = new Map<number, ILocalRepositoryState>()
 
-  it('groups repositories by owners/Enterprise/Other', () => {
+  it('groups repositories by owners, Enterprise, SSH, and Other', () => {
     const grouped = groupRepositories(repositories, cache, [])
-    assert.equal(grouped.length, 3)
+    assert.equal(grouped.length, 4)
 
     assert.equal(grouped[0].identifier.kind, 'dotcom')
     assert.equal((grouped[0].identifier as any).owner.login, 'me')
@@ -45,10 +73,17 @@ describe('repository list grouping', () => {
     item = grouped[1].items[0]
     assert.equal(item.repository.path, 'repo3')
 
-    assert.equal(grouped[2].identifier.kind, 'other')
+    assert.equal(grouped[2].identifier.kind, 'ssh')
+    assert.equal(grouped[2].identifier.displayName, null)
     assert.equal(grouped[2].items.length, 1)
 
     item = grouped[2].items[0]
+    assert.equal(item.repository.name, 'repo4')
+
+    assert.equal(grouped[3].identifier.kind, 'other')
+    assert.equal(grouped[3].items.length, 1)
+
+    item = grouped[3].items[0]
     assert.equal(item.repository.path, 'repo1')
   })
 
@@ -152,5 +187,126 @@ describe('repository list grouping', () => {
 
     assert.equal(grouped[2].items[1].text[0], 'enterprise-repo')
     assert(grouped[2].items[1].needsDisambiguation)
+  })
+
+  it('groups SSH remotes from different hosts together, after Enterprise', () => {
+    const enterprise = new Repository(
+      'local-corp',
+      1,
+      gitHubRepoFixture({
+        owner: 'corp',
+        name: 'local-corp',
+        endpoint: 'https://zzz.example.com/api/v3',
+      }),
+      false
+    )
+    const first = sshRepository('b-repo', 2, null, null, 'a.example')
+    const second = sshRepository('a-repo', 3, null, null, 'z.example')
+    const local = new Repository('plain', 4, null, false)
+
+    const grouped = groupRepositories(
+      [local, second, enterprise, first],
+      cache,
+      []
+    )
+
+    assert.deepStrictEqual(
+      grouped.map(group => group.identifier.kind),
+      ['enterprise', 'ssh', 'other']
+    )
+    assert.equal(grouped[1].identifier.displayName, null)
+    assert.deepStrictEqual(
+      grouped[1].items.map(item => item.repository.name),
+      ['a-repo', 'b-repo']
+    )
+    assert.equal(grouped[2].items[0].repository.path, 'plain')
+  })
+
+  it('groups an SSH checkout of a GitHub repository under SSH', () => {
+    const sshDotcom = sshRepository(
+      'ignored',
+      1,
+      gitHubRepoFixture({ owner: 'me', name: 'cloud-repo' })
+    )
+    const sshEnterprise = sshRepository(
+      'ignored',
+      2,
+      gitHubRepoFixture({
+        owner: 'corp',
+        name: 'corp-repo',
+        endpoint: 'https://zzz.example.com/api/v3',
+      }),
+      null,
+      'remote.example'
+    )
+    const dotcom = new Repository(
+      'local-cloud',
+      3,
+      gitHubRepoFixture({ owner: 'me', name: 'local-cloud' }),
+      false
+    )
+    const enterprise = new Repository(
+      'local-corp',
+      4,
+      gitHubRepoFixture({
+        owner: 'corp',
+        name: 'local-corp',
+        endpoint: 'https://zzz.example.com/api/v3',
+      }),
+      false
+    )
+
+    const grouped = groupRepositories(
+      [sshEnterprise, dotcom, enterprise, sshDotcom],
+      cache,
+      []
+    )
+
+    assert.deepStrictEqual(
+      grouped.map(group => group.identifier.kind),
+      ['dotcom', 'enterprise', 'ssh']
+    )
+    assert.deepStrictEqual(
+      grouped[2].items.map(item => item.repository.name),
+      ['cloud-repo', 'corp-repo']
+    )
+  })
+
+  it('uses a manual group name for an SSH remote', () => {
+    const named = sshRepository('remote-repo', 1, null, 'Tools')
+    const dotcom = new Repository(
+      'gh',
+      2,
+      gitHubRepoFixture({ owner: 'me', name: 'gh' }),
+      false
+    )
+    const local = new Repository('local', 3, null, false)
+
+    const grouped = groupRepositories([local, named, dotcom], cache, [])
+
+    assert.deepStrictEqual(
+      grouped.map(group => group.identifier.kind),
+      ['dotcom', 'ssh', 'other']
+    )
+    assert.equal(grouped[1].identifier.displayName, 'Tools')
+    assert.equal(getGroupKey(grouped[1].identifier), '1:Tools')
+    assert.equal(grouped[1].items[0].repository.name, 'remote-repo')
+    assert.equal(grouped[2].items[0].repository.path, 'local')
+  })
+
+  it('leaves a repository that is still cloning in Other', () => {
+    const cloning = new CloningRepository(
+      '/tmp/clone',
+      'https://example.com/repo.git',
+      null
+    )
+    const ssh = sshRepository('remote', 1)
+    const grouped = groupRepositories([cloning, ssh], cache, [])
+
+    assert.deepStrictEqual(
+      grouped.map(group => group.identifier.kind),
+      ['ssh', 'other']
+    )
+    assert.equal(grouped[1].items[0].repository.path, cloning.path)
   })
 })
