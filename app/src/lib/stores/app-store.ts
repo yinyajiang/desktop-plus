@@ -1,5 +1,6 @@
 import * as Path from 'path'
 import { writeFile } from 'fs/promises'
+import { stat } from 'fs/promises'
 import {
   defaultShowBranchNameInRepoListSetting,
   ShowBranchNameInRepoListSetting,
@@ -22,7 +23,10 @@ import {
   defaultDiffFontFamily,
   DiffFontFamily,
 } from '../../models/diff-font'
-import { EditorOverride } from '../../models/editor-override'
+import {
+  EditorOverride,
+  SystemDefaultProgramLabel,
+} from '../../models/editor-override'
 import { stageResolvedConflictFiles } from '../git/stage'
 import {
   AccountsStore,
@@ -425,6 +429,7 @@ import { WorkflowPreferences } from '../../models/workflow-preferences'
 import { RepositoryIndicatorUpdater } from './helpers/repository-indicator-updater'
 import { isAttributableEmailFor } from '../email'
 import { TrashNameLabel } from '../../ui/lib/context-menu'
+import { isSafeFileExtension } from '../../ui/lib/context-menu'
 import { GitError as DugiteError } from 'dugite'
 import {
   ErrorWithMetadata,
@@ -678,6 +683,7 @@ const pullRequestSuggestedNextActionKey =
   'pull-request-suggested-next-action-key'
 
 const customEditorKey = 'custom-editor'
+const useSystemDefaultProgramKey = 'use-system-default-program'
 const copilotAppPathKey = 'copilot-app-path'
 
 const customShellKey = 'custom-shell'
@@ -872,6 +878,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
   private useCustomEditor: boolean = false
   private customEditor: ICustomIntegration | null = null
+  private useSystemDefaultProgram: boolean = false
   private copilotAppPath: string | null = null
 
   private useCustomShell: boolean = false
@@ -1528,6 +1535,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       lastThankYou: this.lastThankYou,
       useCustomEditor: this.useCustomEditor,
       customEditor: this.customEditor,
+      useSystemDefaultProgram: this.useSystemDefaultProgram,
       useCustomShell: this.useCustomShell,
       customShell: this.customShell,
       copilotAppPath: this.copilotAppPath,
@@ -3269,6 +3277,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     this.useCustomEditor =
       enableCustomIntegration() && getBoolean(useCustomEditorKey, false)
     this.customEditor = getObject<ICustomIntegration>(customEditorKey) ?? null
+    this.useSystemDefaultProgram = getBoolean(useSystemDefaultProgramKey, false)
     this.copilotAppPath = localStorage.getItem(copilotAppPathKey)
 
     this.useCustomShell =
@@ -3590,10 +3599,17 @@ export class AppStore extends TypedBaseStore<IAppState> {
     const hasEditorOverride =
       isRepository && selectedRepository.customEditorOverride !== null
 
-    const useCustomEditor = hasEditorOverride
-      ? selectedRepository.customEditorOverride.useCustomEditor
-      : this.useCustomEditor
-    const selectedExternalEditor = hasEditorOverride
+    const useSystemDefaultProgram = hasEditorOverride
+      ? selectedRepository.customEditorOverride.useSystemDefaultProgram ?? false
+      : this.useSystemDefaultProgram
+    const useCustomEditor =
+      !useSystemDefaultProgram &&
+      (hasEditorOverride
+        ? selectedRepository.customEditorOverride.useCustomEditor
+        : this.useCustomEditor)
+    const selectedExternalEditor = useSystemDefaultProgram
+      ? SystemDefaultProgramLabel
+      : hasEditorOverride
       ? selectedRepository.customEditorOverride.selectedExternalEditor
       : this.selectedExternalEditor
 
@@ -9223,21 +9239,31 @@ export class AppStore extends TypedBaseStore<IAppState> {
     fullPath: string
   ): Promise<void> {
     if (repository?.customEditorOverride) {
-      const { selectedExternalEditor, useCustomEditor, customEditor } =
-        repository?.customEditorOverride
+      const {
+        selectedExternalEditor,
+        useCustomEditor,
+        customEditor,
+        useSystemDefaultProgram,
+      } = repository?.customEditorOverride
       return this._openInExternalEditorImpl(
         selectedExternalEditor,
         useCustomEditor,
         customEditor,
+        useSystemDefaultProgram ?? false,
         fullPath
       )
     } else {
-      const { selectedExternalEditor, useCustomEditor, customEditor } =
-        this.getState()
+      const {
+        selectedExternalEditor,
+        useCustomEditor,
+        customEditor,
+        useSystemDefaultProgram,
+      } = this.getState()
       return this._openInExternalEditorImpl(
         selectedExternalEditor,
         useCustomEditor,
         customEditor,
+        useSystemDefaultProgram,
         fullPath
       )
     }
@@ -9247,8 +9273,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
     selectedExternalEditor: string | null,
     useCustomEditor: boolean,
     customEditor: ICustomIntegration | null,
+    useSystemDefaultProgram: boolean,
     fullPath: string
   ): Promise<void> {
+    if (useSystemDefaultProgram) {
+      return this.openInSystemDefaultProgram(fullPath)
+    }
+
     try {
       if (useCustomEditor && customEditor) {
         await launchCustomExternalEditor(fullPath, customEditor)
@@ -9268,6 +9299,43 @@ export class AppStore extends TypedBaseStore<IAppState> {
       }
     } catch (error) {
       this.emitError(error)
+    }
+  }
+
+  private async openInSystemDefaultProgram(fullPath: string): Promise<void> {
+    let isDirectory: boolean
+    try {
+      isDirectory = (await stat(fullPath)).isDirectory()
+    } catch (error) {
+      this.emitError(error)
+      return
+    }
+
+    if (isDirectory) {
+      shell.showFolderContents(fullPath)
+      return
+    }
+
+    // The default action for restricted file types is to execute them
+    if (!isSafeFileExtension(Path.extname(fullPath))) {
+      this.emitError(
+        new Error(
+          `Desktop Plus will not open ${fullPath} in the system default program because doing so could execute it.`
+        )
+      )
+      return
+    }
+
+    const errorMessage = await shell.openPath(fullPath)
+    if (errorMessage !== '') {
+      log.error(
+        `Failed to open ${fullPath} in default program: ${errorMessage}`
+      )
+      this.emitError(
+        new Error(
+          `Unable to open file ${fullPath} in an external program. Please check you have a program associated with this file extension`
+        )
+      )
     }
   }
 
@@ -10121,6 +10189,23 @@ export class AppStore extends TypedBaseStore<IAppState> {
       const gitStore = this.gitStoreCache.get(repository)
 
       await gitStore.revertCommit(repository, commit, progress => {
+        this.updateRevertProgress(repository, progress)
+      })
+
+      this.updateRevertProgress(repository, null)
+      await this._refreshRepository(repository)
+    })
+  }
+
+  /** This shouldn't be called directly. See `Dispatcher`. */
+  public async _revertCommits(
+    repository: Repository,
+    commits: ReadonlyArray<Commit>
+  ): Promise<void> {
+    return this.withRefreshedGitHubRepository(repository, async repository => {
+      const gitStore = this.gitStoreCache.get(repository)
+
+      await gitStore.revertCommits(repository, commits, progress => {
         this.updateRevertProgress(repository, progress)
       })
 
@@ -11396,6 +11481,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
     setBoolean(useCustomEditorKey, useCustomEditor)
     this.useCustomEditor = useCustomEditor
     this.emitUpdate()
+  }
+
+  public _setUseSystemDefaultProgram(useSystemDefaultProgram: boolean) {
+    setBoolean(useSystemDefaultProgramKey, useSystemDefaultProgram)
+    this.useSystemDefaultProgram = useSystemDefaultProgram
+    this.emitUpdate()
+    this.updateMenuLabelsForSelectedRepository()
   }
 
   public _setCustomEditor(customEditor: ICustomIntegration) {

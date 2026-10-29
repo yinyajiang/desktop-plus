@@ -28,6 +28,16 @@ export const isMaxBufferExceededError = (
   )
 }
 
+const notAGitRepositoryAtMountPointRe =
+  /^fatal: [Nn]ot a git repository \(or any parent up to mount point .*\)$/m
+
+function parseUnrecognizedError(stderr: string): DugiteError | null {
+  if (notAGitRepositoryAtMountPointRe.test(stderr)) {
+    return DugiteError.NotAGitRepository
+  }
+  return null
+}
+
 export type TerminalOutput = string | Buffer | Buffer[]
 
 export type TerminalOutputListener = (cb: (chunk: TerminalOutput) => void) => {
@@ -399,6 +409,9 @@ function interpretGitResult(
     gitError = parseError(coerceToString(result.stderr))
     if (gitError === null) {
       gitError = parseError(coerceToString(result.stdout))
+    }
+    if (gitError === null) {
+      gitError = parseUnrecognizedError(coerceToString(result.stderr))
     }
   }
 

@@ -364,6 +364,7 @@ function getCustomOverrideHash(
     customEditorOverride?.selectedExternalEditor,
     customEditorOverride?.useCustomEditor,
     customEditorOverride?.customEditor?.path,
-    customEditorOverride?.customEditor?.arguments
+    customEditorOverride?.customEditor?.arguments,
+    customEditorOverride?.useSystemDefaultProgram
   )
 }
