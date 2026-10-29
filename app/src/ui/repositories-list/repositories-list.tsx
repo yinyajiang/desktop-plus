@@ -1502,8 +1502,8 @@ export class RepositoriesList extends React.Component<
   private renderPostFilter = () => {
     return (
       <>
-        {this.renderAddRepositoryButton()}
         {this.renderPullAllRepositoriesButton()}
+        {this.renderAddRepositoryButton()}
       </>
     )
   }
