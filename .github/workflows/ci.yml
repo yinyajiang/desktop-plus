@@ -57,7 +57,7 @@ on:
       APPLE_APPLICATION_CERT_PASSWORD:
 
 env:
-  NODE_VERSION: 24.19.0
+  NODE_VERSION: 24.22.1
   DESKTOP_ERROR_REPORTING_ENDPOINT: ${{ inputs.error-reporting-endpoint }}
   DESKTOP_NON_FATAL_ERROR_REPORTING_ENDPOINT:
     ${{ inputs.non-fatal-error-reporting-endpoint }}
@@ -838,7 +838,7 @@ jobs:
           # Copy and sign RPM packages
           find ../artifacts -type f -name "*.rpm" -exec cp {} Packages/ \;
           for rpm in Packages/*.rpm; do
-            rpm --addsign "$rpm"
+            rpmsign --addsign --rpmv4 "$rpm"
           done
 
           # Create and sign release

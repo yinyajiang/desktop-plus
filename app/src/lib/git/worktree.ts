@@ -166,14 +166,32 @@ export async function removeWorktree(
   await git(args, repositoryPath, 'removeWorktree')
 }
 
+/**
+ * Move (rename) a linked worktree from `oldPath` to `newPath`.
+ *
+ * Git is run from the main worktree rather than from `repository.path` since
+ * the repository is frequently the very worktree being moved, and Windows
+ * refuses to rename a directory that is the working directory of a process.
+ */
 export async function moveWorktree(
   repository: Repository,
   oldPath: string,
   newPath: string
 ): Promise<void> {
+  const mainWorktree = (await listWorktrees(repository)).find(
+    wt => wt.type === 'main'
+  )
+
+  // SSH repositories report no linked worktrees. Git still runs on the host
+  // from the repository path; a local repository with no main worktree cannot
+  // be renamed from here.
+  if (mainWorktree === undefined && !isSshRemotePath(repository.path)) {
+    throw new Error('Could not determine the main worktree of the repository')
+  }
+
   await git(
-    ['worktree', 'move', oldPath, newPath],
-    repository.path,
+    ['worktree', 'move', '--', oldPath, newPath],
+    mainWorktree?.path ?? repository.path,
     'moveWorktree'
   )
 }
