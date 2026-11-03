@@ -12,11 +12,13 @@ interface IAdvancedPreferencesProps {
   readonly useExternalCredentialHelper: boolean
   readonly repositoryIndicatorsEnabled: boolean
   readonly hideWindowOnQuit: boolean
+  readonly autoInstallUpdates: boolean
   readonly onUseWindowsOpenSSHChanged: (checked: boolean) => void
   readonly onOptOutofReportingChanged: (checked: boolean) => void
   readonly onUseExternalCredentialHelperChanged: (checked: boolean) => void
   readonly onRepositoryIndicatorsEnabledChanged: (enabled: boolean) => void
   readonly onHideWindowOnQuitChanged: (enabled: boolean) => void
+  readonly onAutoInstallUpdatesChanged: (enabled: boolean) => void
 }
 
 interface IAdvancedPreferencesState {
@@ -81,6 +83,12 @@ export class Advanced extends React.Component<
     event: React.FormEvent<HTMLInputElement>
   ) => {
     this.props.onHideWindowOnQuitChanged(event.currentTarget.checked)
+  }
+
+  private onAutoInstallUpdatesChanged = (
+    event: React.FormEvent<HTMLInputElement>
+  ) => {
+    this.props.onAutoInstallUpdatesChanged(event.currentTarget.checked)
   }
 
   private reportDesktopUsageLabel() {
@@ -195,13 +203,50 @@ export class Advanced extends React.Component<
           }
           onChange={this.onHideWindowOnQuitChanged}
         />
-        <div className="git-settings-description">
+        <div className="settings-description mb">
           <p>
             When the window is closed, the app will continue running in the
-            background. Use Ctrl+Q to completely quit the app.
+            background. Use {this.quitKeyCombination()} to completely quit the
+            app.
           </p>
         </div>
+        {__WIN32__ && this.renderAutoInstallUpdates()}
       </div>
+    )
+  }
+
+  private quitKeyCombination() {
+    if (__DARWIN__) {
+      return 'Cmd+Q'
+    }
+    if (__WIN32__) {
+      return 'Alt+F4'
+    }
+    return 'Ctrl+Q'
+  }
+
+  private renderAutoInstallUpdates() {
+    return (
+      <>
+        <Checkbox
+          label="Automatically download and install updates"
+          value={
+            this.props.autoInstallUpdates ? CheckboxValue.On : CheckboxValue.Off
+          }
+          onChange={this.onAutoInstallUpdatesChanged}
+          ariaDescribedBy="auto-install-updates-description"
+        />
+        <div
+          id="auto-install-updates-description"
+          className="settings-description"
+        >
+          <p>
+            Updates are downloaded in the background and installed the next time
+            the app restarts. You can check for updates manually from the About
+            dialog.
+          </p>
+        </div>
+      </>
     )
   }
 }
