@@ -1,7 +1,9 @@
 import * as Path from 'path'
+import { posix } from 'path'
 import { shortenSHA } from './commit'
 import { Branch } from './branch'
 import { UncommittedChangesStrategy } from './uncommitted-changes-strategy'
+import { parseSshRemoteLocation } from '../lib/ssh/ssh-remote-location'
 
 export type WorktreeType = 'main' | 'linked'
 
@@ -33,9 +35,27 @@ export interface IDeleteWorktreeOptions {
   readonly checkout?: IDeferredCheckout
 }
 
+/**
+ * The folder name shown for a worktree.
+ *
+ * An SSH virtual path has no local directory. The name is the basename of the
+ * remote POSIX path, so a Windows client does not turn `/srv/foo` into
+ * `\srv\foo`.
+ */
+export function getWorktreePathDisplayName(path: string): string {
+  const remote = parseSshRemoteLocation(path)
+  if (remote) {
+    const base = posix.basename(remote.remotePath)
+    return base.length === 0 ? remote.remotePath : base
+  }
+
+  const base = Path.basename(path)
+  return base.length === 0 ? path : base
+}
+
 /** The display name for a worktree (the basename of its path). */
 export function getWorktreeDisplayName(worktree: WorktreeEntry): string {
-  return Path.basename(worktree.path)
+  return getWorktreePathDisplayName(worktree.path)
 }
 
 /**

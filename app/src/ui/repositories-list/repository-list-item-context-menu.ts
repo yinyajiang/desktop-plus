@@ -1,5 +1,3 @@
-import * as Path from 'path'
-
 import {
   Repository,
   getRepositoryAccountIdentity,
@@ -17,8 +15,14 @@ import { isRepositoryWithGitHubRepository } from '../../models/repository'
 import { hasDefaultRemoteUrl } from '../../lib/repository-remote-url'
 import { GitHubRepository } from '../../models/github-repository'
 import { getForgejoName } from '../../lib/forgejo-name'
-import { WorktreeEntry } from '../../models/worktree'
-import { formatSshRemoteLabel } from '../../lib/ssh/ssh-remote-location'
+import {
+  getWorktreePathDisplayName,
+  WorktreeEntry,
+} from '../../models/worktree'
+import {
+  formatSshRemoteLabel,
+  parseSshRemoteLocation,
+} from '../../lib/ssh/ssh-remote-location'
 
 interface IRepositoryListItemContextMenuConfig {
   repository: Repositoryish
@@ -165,10 +169,11 @@ export const generateWorktreeListItemContextMenu = (
 ): ReadonlyArray<IMenuItem> => {
   const { repository, worktree } = config
   const path = worktree.path
-  const name = Path.basename(path)
+  const name = getWorktreePathDisplayName(path)
   const isGitHub = isRepositoryWithGitHubRepository(repository)
   const hasOriginUrl = hasDefaultRemoteUrl(repository)
   const canModify = !worktree.isLocked
+  const ssh = repository.sshRemote !== null
   const openInExternalEditor = config.externalEditorLabel
     ? `Open in ${config.externalEditorLabel}`
     : DefaultEditorLabel
@@ -176,24 +181,40 @@ export const generateWorktreeListItemContextMenu = (
     ? `Open in ${config.shellLabel}`
     : DefaultShellLabel
 
-  return [
-    {
-      label: __DARWIN__ ? 'New Worktree…' : 'New worktree…',
-      action: () => config.onCreateWorktree(repository),
-    },
-    {
-      label: __DARWIN__ ? 'Rename Worktree…' : 'Rename worktree…',
-      action: () => config.onRenameWorktree(repository, path),
-      enabled: canModify,
-    },
-    { type: 'separator' },
+  const copyPath = () => {
+    const remote = parseSshRemoteLocation(path)
+    if (remote) {
+      writeClipboardText(remote.remotePath)
+      return
+    }
+    config.onCopyWorktreePath(path)
+  }
+
+  const items: Array<IMenuItem> = []
+
+  if (!ssh) {
+    items.push(
+      {
+        label: __DARWIN__ ? 'New Worktree…' : 'New worktree…',
+        action: () => config.onCreateWorktree(repository),
+      },
+      {
+        label: __DARWIN__ ? 'Rename Worktree…' : 'Rename worktree…',
+        action: () => config.onRenameWorktree(repository, path),
+        enabled: canModify,
+      },
+      { type: 'separator' }
+    )
+  }
+
+  items.push(
     {
       label: __DARWIN__ ? 'Copy Worktree Name' : 'Copy worktree name',
       action: () => writeClipboardText(name),
     },
     {
       label: __DARWIN__ ? 'Copy Worktree Path' : 'Copy worktree path',
-      action: () => config.onCopyWorktreePath(path),
+      action: copyPath,
     },
     { type: 'separator' },
     {
@@ -202,32 +223,43 @@ export const generateWorktreeListItemContextMenu = (
       ),
       action: () => config.onViewOnGitHub(repository),
       enabled: isGitHub || hasOriginUrl,
-    },
-    {
+    }
+  )
+
+  if (!ssh) {
+    items.push({
       label: __DARWIN__
         ? 'Open Worktree in New Window'
         : 'Open worktree in new window',
       action: () => config.onOpenWorktreeInNewWindow(path),
-    },
-    {
-      label: openInShell,
-      action: () => config.onOpenInShell(repository, path),
-    },
-    {
-      label: RevealInFileManagerLabel,
-      action: () => config.onShowRepository(repository, path),
-    },
-    {
-      label: openInExternalEditor,
-      action: () => config.onOpenInExternalEditor(repository, path),
-    },
-    { type: 'separator' },
-    {
-      label: __DARWIN__ ? 'Delete Worktree…' : 'Delete worktree…',
-      action: () => config.onDeleteWorktree(repository, path),
-      enabled: canModify,
-    },
-  ]
+    })
+  }
+
+  items.push({
+    label: openInShell,
+    action: () => config.onOpenInShell(repository, path),
+  })
+
+  if (!ssh) {
+    items.push(
+      {
+        label: RevealInFileManagerLabel,
+        action: () => config.onShowRepository(repository, path),
+      },
+      {
+        label: openInExternalEditor,
+        action: () => config.onOpenInExternalEditor(repository, path),
+      },
+      { type: 'separator' },
+      {
+        label: __DARWIN__ ? 'Delete Worktree…' : 'Delete worktree…',
+        action: () => config.onDeleteWorktree(repository, path),
+        enabled: canModify,
+      }
+    )
+  }
+
+  return items
 }
 
 function getViewOnBrowserLabel(gitHubRepository: GitHubRepository | null) {
@@ -379,9 +411,23 @@ const buildWorktreeMenuItems = (
 ): ReadonlyArray<IMenuItem> => {
   const { repository, onCreateWorktree, onShowWorktrees } = config
 
-  // TODO: linked worktrees on an SSH host are not managed yet.
-  if (!(repository instanceof Repository) || repository.sshRemote) {
+  if (!(repository instanceof Repository)) {
     return []
+  }
+
+  // Creating a worktree over SSH is not implemented. Showing the list only
+  // opens the toolbar dropdown.
+  if (repository.sshRemote) {
+    if (onShowWorktrees === undefined) {
+      return []
+    }
+
+    return [
+      {
+        label: __DARWIN__ ? 'Show Worktrees' : 'Show worktrees',
+        action: () => onShowWorktrees(repository),
+      },
+    ]
   }
 
   if (onCreateWorktree === undefined && onShowWorktrees === undefined) {

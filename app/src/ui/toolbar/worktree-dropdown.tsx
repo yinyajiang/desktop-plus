@@ -1,11 +1,10 @@
 import * as React from 'react'
-import * as Path from 'path'
 import { Dispatcher } from '../dispatcher'
 import * as octicons from '../octicons/octicons.generated'
 import { Repository } from '../../models/repository'
 import { ToolbarDropdown, DropdownState } from './dropdown'
 import { FoldoutType, IConstrainedValue } from '../../lib/app-state'
-import { WorktreeEntry } from '../../models/worktree'
+import { getWorktreeDisplayName, WorktreeEntry } from '../../models/worktree'
 import { WorktreeList } from '../worktrees/worktree-list'
 import { showContextualMenu, IMenuItem } from '../../lib/menu-item'
 import { generateWorktreeContextMenuItems } from '../worktrees/worktree-list-item-context-menu'
@@ -49,7 +48,11 @@ export class WorktreeDropdown extends React.Component<
     dispatcher.closeFoldout(FoldoutType.Worktree)
 
     if (worktree.isPrunable) {
-      dispatcher.requestDeleteWorktree(repository, worktree.path)
+      // A missing SSH worktree stays listed until the host prunes it.
+      // Desktop does not run `git worktree remove` or `prune` there.
+      if (repository.sshRemote === null) {
+        dispatcher.requestDeleteWorktree(repository, worktree.path)
+      }
       return
     }
 
@@ -62,13 +65,16 @@ export class WorktreeDropdown extends React.Component<
   ) => {
     event.preventDefault()
 
+    const ssh = this.props.repository.sshRemote !== null
     const items = generateWorktreeContextMenuItems({
       path: worktree.path,
       isMainWorktree: worktree.type === 'main',
       isLocked: worktree.isLocked,
-      onRenameWorktree: this.onRenameWorktree,
-      onRemoveWorktree: this.onRemoveWorktree,
-      onOpenInNewWindow: () => this.onOpenWorktreeInNewWindow(worktree.path),
+      onRenameWorktree: ssh ? undefined : this.onRenameWorktree,
+      onRemoveWorktree: ssh ? undefined : this.onRemoveWorktree,
+      onOpenInNewWindow: ssh
+        ? undefined
+        : () => this.onOpenWorktreeInNewWindow(worktree.path),
     })
 
     showContextualMenu(items)
@@ -113,13 +119,19 @@ export class WorktreeDropdown extends React.Component<
     }
 
     const isMain = currentWorktree.type === 'main'
+    const ssh = this.props.repository.sshRemote !== null
 
     const items = generateWorktreeContextMenuItems({
       path: currentWorktree.path,
       isMainWorktree: isMain,
       isLocked: currentWorktree.isLocked,
-      onRemoveWorktree: isMain ? undefined : this.onRemoveWorktree,
+      onRemoveWorktree: isMain || ssh ? undefined : this.onRemoveWorktree,
     })
+
+    if (ssh) {
+      showContextualMenu(items)
+      return
+    }
 
     const newWorktreeItem: IMenuItem = {
       label: __DARWIN__ ? 'New Worktree…' : 'New worktree…',
@@ -146,7 +158,7 @@ export class WorktreeDropdown extends React.Component<
         onWorktreeClick={this.onWorktreeClick}
         filterText={this.state.filterText}
         onFilterTextChanged={this.onFilterTextChanged}
-        canCreateNewWorktree={true}
+        canCreateNewWorktree={this.props.repository.sshRemote === null}
         onCreateNewWorktree={this.onCreateNewWorktree}
         onWorktreeContextMenu={this.onWorktreeContextMenu}
       />
@@ -171,7 +183,7 @@ export class WorktreeDropdown extends React.Component<
     const currentState: DropdownState = isOpen ? 'open' : 'closed'
     const currentWorktree = this.getCurrentWorktree()
     const title = currentWorktree
-      ? Path.basename(currentWorktree.path)
+      ? getWorktreeDisplayName(currentWorktree)
       : this.props.repository.name
     const description = __DARWIN__ ? 'Current Worktree' : 'Current worktree'
 

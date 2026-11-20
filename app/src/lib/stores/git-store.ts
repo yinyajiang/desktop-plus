@@ -77,6 +77,7 @@ import {
   memoizedGetRemotesFromPath,
   MergeOptions,
   listWorktrees,
+  applyDiscoveredWorktrees,
   getUniqueAuthorsNameAndEmail,
 } from '../git'
 import { GitError as DugiteError } from '../../lib/git'
@@ -595,11 +596,13 @@ export class GitStore extends BaseStore {
 
   /** Load all worktrees. */
   public async loadWorktrees() {
-    const worktrees = await this.performFailableOperation(() =>
+    const discovered = await this.performFailableOperation(() =>
       listWorktrees(this.repository)
     )
-
-    if (!worktrees) {
+    // A transport failure leaves the previous list in place. An empty
+    // successful list is a real result and replaces it.
+    const worktrees = applyDiscoveredWorktrees(this._allWorktrees, discovered)
+    if (discovered === undefined) {
       return
     }
 

@@ -697,10 +697,9 @@ export class ConnectSSHHost extends React.Component<
         return
       }
 
-      const repositories = await this.props.dispatcher.addRepositories(
-        [probe.topLevelWorkingDirectory],
-        null
-      )
+      const repositories = await this.props.dispatcher.addRepositories([
+        probe.topLevelWorkingDirectory,
+      ])
 
       if (repositories.length === 0) {
         this.setState({ error: 'Unable to add the remote repository.' })

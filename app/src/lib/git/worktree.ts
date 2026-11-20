@@ -3,10 +3,62 @@ import type { Repository } from '../../models/repository'
 import type { WorktreeEntry, WorktreeType } from '../../models/worktree'
 import { pathExists } from '../path-exists'
 import { git } from './core'
-import { isSshRemotePath } from '../ssh/ssh-remote-location'
+import {
+  formatSshRemoteLocation,
+  ISshRemoteLocation,
+  isSshRemotePath,
+  normalizeRemotePath,
+  parseSshRemoteLocation,
+} from '../ssh/ssh-remote-location'
+
+export interface IParseWorktreePorcelainOptions {
+  /**
+   * Replaces the path Git printed.
+   *
+   * Local lists keep platform normalization. SSH lists map the remote POSIX
+   * path onto a virtual path for the same host instead.
+   */
+  readonly mapPath?: (gitPath: string) => string
+}
+
+/**
+ * Keep the list already on screen when enumeration fails.
+ *
+ * `undefined` means the transport or Git command failed. A successful list,
+ * including one that no longer contains a removed worktree, replaces it.
+ */
+export function applyDiscoveredWorktrees<T>(
+  previous: readonly T[],
+  discovered: readonly T[] | undefined
+): readonly T[] {
+  return discovered === undefined ? previous : discovered
+}
+
+/**
+ * Map a path from `git worktree list` on an SSH host onto a virtual path.
+ *
+ * The host, user, port, and identity file stay the same. The path is a remote
+ * POSIX path, so it is not passed through `path.win32.normalize`.
+ */
+export function mapSshWorktreePath(
+  gitPath: string,
+  location: ISshRemoteLocation
+): string {
+  return formatSshRemoteLocation({
+    ...location,
+    remotePath: normalizeRemotePath(gitPath),
+  })
+}
+
+function assertLocalWorktreeMutation(path: string, action: string): void {
+  if (isSshRemotePath(path)) {
+    throw new Error(`Cannot ${action} a worktree on an SSH host from Desktop`)
+  }
+}
 
 export function parseWorktreePorcelainOutput(
-  stdout: string
+  stdout: string,
+  options?: IParseWorktreePorcelainOptions
 ): ReadonlyArray<WorktreeEntry> {
   if (stdout.trim().length === 0) {
     return []
@@ -28,12 +80,17 @@ export function parseWorktreePorcelainOutput(
 
     for (const line of lines) {
       if (line.startsWith('worktree ')) {
-        // Git for Windows will output paths using forward slashes, i.e.
-        // c:/Users/niik/... but repositories added in Desktop always pass
-        // through getRepositoryType which uses path.resolve to deduce the
-        // absolute top level directory and that will normalize paths as well
-        // so by normalizing here we can be more confident about comparing paths
-        path = Path.normalize(line.substring('worktree '.length))
+        const gitPath = line.substring('worktree '.length)
+        if (options?.mapPath) {
+          path = options.mapPath(gitPath)
+        } else {
+          // Git for Windows will output paths using forward slashes, i.e.
+          // c:/Users/niik/... but repositories added in Desktop always pass
+          // through getRepositoryType which uses path.resolve to deduce the
+          // absolute top level directory and that will normalize paths as well
+          // so by normalizing here we can be more confident about comparing paths
+          path = Path.normalize(gitPath)
+        }
       } else if (line.startsWith('HEAD ')) {
         head = line.substring('HEAD '.length)
       } else if (line.startsWith('branch ')) {
@@ -62,17 +119,18 @@ export async function listWorktrees(
       ? repositoryOrPath
       : repositoryOrPath.path
 
-  // TODO: linked worktrees on an SSH host are not managed. Returning none
-  // keeps the sidebar from treating remote filesystem paths as local folders.
-  if (isSshRemotePath(path)) {
-    return []
-  }
-
   const result = await git(
     ['worktree', 'list', '--porcelain', '-z'],
     path,
     'listWorktrees'
   )
+
+  const location = parseSshRemoteLocation(path)
+  if (location) {
+    return parseWorktreePorcelainOutput(result.stdout, {
+      mapPath: gitPath => mapSshWorktreePath(gitPath, location),
+    })
+  }
 
   return parseWorktreePorcelainOutput(result.stdout)
 }
@@ -114,7 +172,9 @@ export async function resolveMainWorktreePath(
     return mainWorktreePath
   }
 
-  if (gitDir === undefined) {
+  // An SSH git dir is a path on the remote host. A local `git --git-dir`
+  // cannot list it, and a failed lookup must not invent a local path.
+  if (repository.sshRemote || gitDir === undefined) {
     return null
   }
 
@@ -140,6 +200,7 @@ export async function addWorktree(
   path: string,
   options: IAddWorktreeOptions = {}
 ): Promise<void> {
+  assertLocalWorktreeMutation(repository.path, 'create')
   const args = ['worktree', 'add']
 
   if (options.createBranch) {
@@ -160,6 +221,7 @@ export async function removeWorktree(
   worktreePath: string,
   force: boolean = false
 ): Promise<void> {
+  assertLocalWorktreeMutation(repositoryPath, 'delete')
   const args = ['worktree', 'remove']
   if (force) {
     args.push('--force')
@@ -181,6 +243,7 @@ export async function moveWorktree(
   oldPath: string,
   newPath: string
 ): Promise<void> {
+  assertLocalWorktreeMutation(repository.path, 'move')
   const mainWorktree = (await listWorktrees(repository)).find(
     wt => wt.type === 'main'
   )

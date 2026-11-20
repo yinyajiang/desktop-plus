@@ -312,6 +312,7 @@ import {
   getRepositoryType,
   RepositoryType,
   listWorktrees,
+  applyDiscoveredWorktrees,
   IAddWorktreeOptions,
   setConfigValue,
   removeConfigValue,
@@ -570,8 +571,11 @@ import {
   IDeferredCheckout,
   IDeleteWorktreeOptions,
   WorktreeEntry,
+  getWorktreePathDisplayName,
 } from '../../models/worktree'
 import { shouldShowWorktreeDropdown } from '../worktree-dropdown'
+import { watchLocalWorktreeList } from '../worktree-list-watcher'
+import { SshWorktreeRefreshScheduler } from '../ssh-worktree-refresh'
 import type { Model } from '../copilot/types'
 import {
   areSnoozesEqual,
@@ -785,6 +789,17 @@ export class AppStore extends TypedBaseStore<IAppState> {
   private currentBackgroundFetcher: BackgroundFetcher | null = null
 
   private currentBranchPruner: BranchPruner | null = null
+
+  /** Local common-dir watch for the selected repository. SSH uses polling. */
+  private worktreeListWatch: { dispose(): void } | null = null
+
+  /**
+   * While an SSH repository is selected, list its worktrees on an interval.
+   * The host has no filesystem watch Desktop can subscribe to.
+   */
+  private readonly sshWorktreeRefresh = new SshWorktreeRefreshScheduler(() =>
+    this.refreshSelectedSshWorktrees()
+  )
 
   private readonly repositoryIndicatorUpdater: RepositoryIndicatorUpdater
 
@@ -2956,6 +2971,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     this.selectedRepository = repository
+    this.stopWorktreeDiscovery()
 
     this.emitUpdate()
     this.stopBackgroundFetching()
@@ -3077,6 +3093,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
 
     this.startBackgroundFetching(repository, !previouslySelectedRepository)
     this.startPullRequestUpdater(repository)
+    this.startWorktreeDiscovery(repository)
 
     this.startBackgroundPruner(repository)
 
@@ -5661,27 +5678,143 @@ export class AppStore extends TypedBaseStore<IAppState> {
   }
 
   private async _refreshWorktrees(repository: Repository): Promise<void> {
+    const previous = this.repositoryStateCache.get(repository).worktrees
+    let discovered: ReadonlyArray<WorktreeEntry> | undefined
     try {
-      const worktrees = await listWorktrees(repository)
-      this.repositoryStateCache.update(repository, () => ({ worktrees }))
-      this.statsStore.recordWorktreeCount(worktrees.length)
-
-      // The presence of linked worktrees determines whether the worktree
-      // dropdown is shown, which changes how the toolbar width is allocated.
-      this.updateResizableConstraints()
-
-      // Keep the repository list's local state in sync as well
-      const existing = this.localRepositoryStateLookup.get(repository.id)
-      if (existing && this.showWorktreesInRepoList) {
-        this.localRepositoryStateLookup.set(repository.id, {
-          ...existing,
-          worktrees,
-        })
-      }
-
-      this.emitUpdate()
+      discovered = await listWorktrees(repository)
     } catch (e) {
       log.error('Failed to refresh worktrees', e)
+    }
+
+    const worktrees = applyDiscoveredWorktrees(previous, discovered)
+    if (discovered === undefined) {
+      return
+    }
+
+    this.repositoryStateCache.update(repository, () => ({ worktrees }))
+    this.statsStore.recordWorktreeCount(worktrees.length)
+
+    // The presence of linked worktrees determines whether the worktree
+    // dropdown is shown, which changes how the toolbar width is allocated.
+    this.updateResizableConstraints()
+
+    // Keep the repository list's local state in sync as well
+    const existing = this.localRepositoryStateLookup.get(repository.id)
+    if (existing && this.showWorktreesInRepoList) {
+      this.localRepositoryStateLookup.set(repository.id, {
+        ...existing,
+        worktrees,
+      })
+    }
+
+    await this.rememberMainWorktreePath(repository, worktrees).catch(e => {
+      log.error('Failed to record the main worktree path', e)
+    })
+
+    this.emitUpdate()
+  }
+
+  /**
+   * Stop watching or polling worktrees. Called when the selection changes,
+   * before the new repository's discovery is armed.
+   */
+  private stopWorktreeDiscovery(): void {
+    this.worktreeListWatch?.dispose()
+    this.worktreeListWatch = null
+    this.sshWorktreeRefresh.stop()
+  }
+
+  /**
+   * Local repositories watch the Git common directory. SSH repositories poll
+   * `git worktree list` while they stay selected. Neither path enables the
+   * sidebar worktree preference.
+   */
+  private startWorktreeDiscovery(repository: Repository): void {
+    this.stopWorktreeDiscovery()
+    if (repository.missing) {
+      return
+    }
+
+    if (repository.sshRemote) {
+      this.sshWorktreeRefresh.start()
+      return
+    }
+
+    const path = repository.path
+    watchLocalWorktreeList(path, () => {
+      const selected = this.selectedRepository
+      if (
+        selected instanceof Repository &&
+        selected.path === path &&
+        selected.sshRemote === null
+      ) {
+        void this._refreshWorktrees(selected)
+      }
+    })
+      .then(listWatch => {
+        const selected = this.selectedRepository
+        if (
+          !(selected instanceof Repository) ||
+          selected.path !== path ||
+          selected.sshRemote !== null
+        ) {
+          listWatch.dispose()
+          return
+        }
+
+        this.worktreeListWatch?.dispose()
+        this.worktreeListWatch = listWatch
+      })
+      .catch(error => {
+        log.error(`Failed to watch worktrees for '${path}'`, error)
+      })
+  }
+
+  private async refreshSelectedSshWorktrees(): Promise<void> {
+    const selected = this.selectedRepository
+    if (!(selected instanceof Repository) || selected.sshRemote === null) {
+      this.sshWorktreeRefresh.stop()
+      return
+    }
+
+    await this._refreshWorktrees(selected)
+  }
+
+  /**
+   * Persist the main worktree path when a successful list names one and the
+   * stored path differs. A failed list never reaches this, so a transport
+   * error cannot clear the recorded path.
+   */
+  private async rememberMainWorktreePath(
+    repository: Repository,
+    worktrees: ReadonlyArray<WorktreeEntry>
+  ): Promise<void> {
+    if (repository.id < 0) {
+      return
+    }
+
+    const main = worktrees.find(worktree => worktree.type === 'main')
+    if (main === undefined) {
+      return
+    }
+
+    const current =
+      this.repositories.find(item => item.id === repository.id) ?? repository
+    if (current.mainWorktreePath === main.path) {
+      return
+    }
+
+    const updated =
+      await this.repositoriesStore.updateRepositoryMainWorktreePath(
+        current,
+        main.path
+      )
+    if (
+      this.selectedRepository instanceof Repository &&
+      this.selectedRepository.id === repository.id &&
+      this.selectedRepository.path === repository.path
+    ) {
+      this.selectedRepository = updated
     }
   }
 
@@ -8704,7 +8837,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
         await this._refreshWorktrees(repository)
 
         if (options.checkout === undefined) {
-          const name = Path.basename(worktreePath)
+          const name = getWorktreePathDisplayName(worktreePath)
           this.emitError(
             new Error(
               `The worktree ${name} is available again and was left in place.`

@@ -1,4 +1,3 @@
-import * as Path from 'path'
 import {
   Repository,
   ILocalRepositoryState,
@@ -12,7 +11,7 @@ import { getHTMLURL } from '../../lib/api'
 import { caseInsensitiveCompare, compare } from '../../lib/compare'
 import { IFilterListGroup, IFilterListItem } from '../lib/filter-list'
 import { IAheadBehind } from '../../models/branch'
-import { WorktreeEntry } from '../../models/worktree'
+import { getWorktreeDisplayName, WorktreeEntry } from '../../models/worktree'
 import { assertNever } from '../../lib/fatal-error'
 import { isGHE, isGHES } from '../../lib/endpoint-capabilities'
 import { Owner } from '../../models/owner'
@@ -20,7 +19,10 @@ import { IAccountIdentity } from '../../models/account'
 
 export type RepositoryListGroup = (
   | {
-      kind: 'recent' | 'ssh'
+      kind: 'recent'
+    }
+  | {
+      kind: 'ssh'
     }
   | {
       kind: 'pins'
@@ -82,14 +84,14 @@ export const getGroupKey = (group: RepositoryListGroup) => {
   if (
     group.kind === 'pins' ||
     group.kind === 'recent' ||
-    group.kind === 'ssh' ||
-    group.displayName !== null
+    group.kind === 'ssh'
   ) {
     return key
   }
-  return group.accountLogin === undefined
-    ? key
-    : `${key}:${JSON.stringify(group.accountLogin?.toLowerCase() ?? null)}`
+  if (group.displayName !== null || group.accountLogin === undefined) {
+    return key
+  }
+  return `${key}:${JSON.stringify(group.accountLogin?.toLowerCase() ?? null)}`
 }
 
 /** Returns the value groups are sorted by in their default order */
@@ -347,7 +349,7 @@ function buildLinkedWorktreeRows(
     .map((wt): IRepositoryListItem => {
       const isActiveWorktree = wt.path === r.path
       return {
-        text: [Path.basename(wt.path)],
+        text: [getWorktreeDisplayName(wt)],
         id: `${r.id}:${wt.path}`,
         repository: r,
         needsDisambiguation: false,

@@ -629,6 +629,23 @@ export class RepositoriesStore extends TypedBaseStore<
   }
 
   /**
+   * Record the main worktree path without changing the open checkout.
+   *
+   * Recovery uses this after a linked checkout disappears. The write is
+   * skipped when the stored path is already current.
+   */
+  public async updateRepositoryMainWorktreePath(
+    repository: Repository,
+    mainWorktreePath: string
+  ): Promise<Repository> {
+    if (repository.mainWorktreePath === mainWorktreePath) {
+      return repository
+    }
+
+    return this.updateRepositoryRecord(repository, { mainWorktreePath })
+  }
+
+  /**
    * Switch the repository to a different worktree path, persisting the target
    * git directory as a stable anchor for recovery.
    *

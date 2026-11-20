@@ -503,8 +503,7 @@ describe('repository list grouping', () => {
   it('leaves a repository that is still cloning in Other', () => {
     const cloning = new CloningRepository(
       '/tmp/clone',
-      'https://example.com/repo.git',
-      null
+      'https://example.com/repo.git'
     )
     const ssh = sshRepository('remote', 1)
     const grouped = groupRepositories([cloning, ssh], cache, [])

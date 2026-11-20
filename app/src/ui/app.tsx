@@ -263,7 +263,11 @@ import {
   getEditorOverrideLabel,
   SystemDefaultProgramLabel,
 } from '../models/editor-override'
-import { IDeleteWorktreeOptions, WorktreeEntry } from '../models/worktree'
+import {
+  getWorktreePathDisplayName,
+  IDeleteWorktreeOptions,
+  WorktreeEntry,
+} from '../models/worktree'
 import { shouldShowWorktreeDropdown } from '../lib/worktree-dropdown'
 import { isAssistedCommitRepositoryLocked } from '../models/assisted-commit-run'
 import { isRepositoryAffectedByAssistedCommit } from '../lib/git/repository-operation'
@@ -4160,7 +4164,7 @@ export class App extends React.Component<IAppProps, IAppState> {
     if (isMainWorktree) {
       return ''
     } else {
-      const worktreeName = Path.basename(repository.path)
+      const worktreeName = getWorktreePathDisplayName(repository.path)
       return ` (${worktreeName})`
     }
   }

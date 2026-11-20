@@ -299,11 +299,10 @@ function getRepositoryMenuBuilder(state: IAppState): MenuStateBuilder {
       menuStateBuilder.disable('open-working-directory')
       menuStateBuilder.disable('open-external-editor')
       menuStateBuilder.disable('open-with-external-editor')
+      // Listing and switching worktrees is supported. Creating one on the
+      // host is not.
       menuStateBuilder.disable('create-worktree')
-      menuStateBuilder.disable('show-worktrees-list')
-      if (enableCopilotAppHandoff()) {
-        menuStateBuilder.disable('open-in-copilot-app')
-      }
+      menuStateBuilder.disable('open-in-copilot-app')
     }
 
     menuStateBuilder.setEnabled(

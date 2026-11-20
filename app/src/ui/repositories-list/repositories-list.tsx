@@ -734,9 +734,7 @@ export class RepositoriesList extends React.Component<
       return 'Pinned'
     }
     const qualifier =
-      kind === 'recent' ||
-      kind === 'ssh' ||
-      group.accountLogin === undefined
+      kind === 'recent' || kind === 'ssh' || group.accountLogin === undefined
         ? ''
         : ` \u2014 ${
             group.accountLogin === null

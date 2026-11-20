@@ -1,8 +1,8 @@
-import * as Path from 'path'
-
 import { IMenuItem } from '../../lib/menu-item'
 import { writeClipboardText } from '../main-process-proxy'
 import { isRepositoryAffectedByAssistedCommit } from '../../lib/git/repository-operation'
+import { getWorktreePathDisplayName } from '../../models/worktree'
+import { parseSshRemoteLocation } from '../../lib/ssh/ssh-remote-location'
 
 interface IWorktreeContextMenuConfig {
   readonly path: string
@@ -24,7 +24,9 @@ export function generateWorktreeContextMenuItems(
     onRemoveWorktree,
     onOpenInNewWindow,
   } = config
-  const name = Path.basename(path)
+  const name = getWorktreePathDisplayName(path)
+  const remote = parseSshRemoteLocation(path)
+  const copyPath = remote ? remote.remotePath : path
   const canMutate =
     !isMainWorktree && !isLocked && !isRepositoryAffectedByAssistedCommit(path)
   const items = new Array<IMenuItem>()
@@ -54,7 +56,7 @@ export function generateWorktreeContextMenuItems(
 
   items.push({
     label: __DARWIN__ ? 'Copy Worktree Path' : 'Copy worktree path',
-    action: () => writeClipboardText(path),
+    action: () => writeClipboardText(copyPath),
   })
 
   if (onRemoveWorktree !== undefined) {

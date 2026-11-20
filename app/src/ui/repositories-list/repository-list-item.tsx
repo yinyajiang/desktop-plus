@@ -1,11 +1,10 @@
 import * as React from 'react'
-import * as Path from 'path'
 
 import { Repository } from '../../models/repository'
 import { Octicon, iconForRepository } from '../octicons'
 import * as octicons from '../octicons/octicons.generated'
 import { Repositoryish } from './group-repositories'
-import { WorktreeEntry } from '../../models/worktree'
+import { getWorktreeDisplayName, WorktreeEntry } from '../../models/worktree'
 import { HighlightText } from '../lib/highlight-text'
 import { IMatches } from '../../lib/fuzzy-find'
 import { IAheadBehind } from '../../models/branch'
@@ -148,7 +147,7 @@ export class RepositoryListItem extends React.Component<
 
         <div className="name">
           <HighlightText
-            text={Path.basename(worktree.path)}
+            text={getWorktreeDisplayName(worktree)}
             highlight={this.props.matches.title}
           />
         </div>
