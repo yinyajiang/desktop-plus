@@ -136,15 +136,20 @@ jobs:
       matrix:
         os: [macos-15, windows-2022, ubuntu-latest]
         arch: [x64, arm64]
-        # This fork publishes macOS and Windows only. Linux installer builds
-        # (AppImage, deb, rpm) stay out of the matrix unless the repository
-        # variable PUBLISH_LINUX_PACKAGES is the string true. That same
-        # variable attaches those packages to the GitHub release and runs the
-        # AUR, RPM, and APT jobs below.
+        # This fork publishes macOS arm64 and Windows x64 only. macOS x64 and
+        # Windows arm64 stay out of branch builds and tag releases permanently.
+        # Linux installer builds (AppImage, deb, rpm) stay out of the matrix
+        # unless the repository variable PUBLISH_LINUX_PACKAGES is the string
+        # true. That same variable attaches those packages to the GitHub
+        # release and runs the AUR, RPM, and APT jobs below.
         exclude:
           - os:
               ${{ vars.PUBLISH_LINUX_PACKAGES == 'true' && 'keep-linux' ||
               'ubuntu-latest' }}
+          - os: macos-15
+            arch: x64
+          - os: windows-2022
+            arch: arm64
         include:
           - os: macos-15
             friendlyName: macOS
@@ -645,9 +650,8 @@ jobs:
 
       - name: Replace unsigned installers with signed ones
         run: |
-          for arch in x64 arm64; do
-            cp signed/DesktopPlus-*-windows-$arch.exe signed/DesktopPlus-*-windows-$arch.msi artifacts/Windows-$arch/
-          done
+          # The build matrix only produces Windows x64.
+          cp signed/DesktopPlus-*-windows-x64.exe signed/DesktopPlus-*-windows-x64.msi artifacts/Windows-x64/
 
       # Overwrite the build artifacts so that the release jobs pick up the
       # signed installers without having to know about this job
@@ -656,14 +660,6 @@ jobs:
         with:
           name: Windows-x64
           path: artifacts/Windows-x64/
-          if-no-files-found: error
-          overwrite: true
-
-      - name: Upload signed Windows arm64 artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: Windows-arm64
-          path: artifacts/Windows-arm64/
           if-no-files-found: error
           overwrite: true
 
@@ -897,7 +893,8 @@ jobs:
 
       - name: Validate RELEASES files
         run: |
-          for arch in x64 arm64; do
+          # The build matrix only publishes Windows x64; do not require arm64.
+          for arch in x64; do
             releases="artifacts/Windows-$arch/RELEASES"
             cat "$releases"
             prefix="https://github.com/desktop-plus/desktop-plus/releases/download/v${APP_VERSION}/DesktopPlus-$arch-"
@@ -934,7 +931,8 @@ jobs:
             echo "::error::The R2_BUCKET_UPDATES secret is not set"
             exit 1
           fi
-          for arch in x64 arm64; do
+          # Upload only the architectures still produced by the build matrix.
+          for arch in x64; do
             s3cmd put \
               --mime-type="text/plain" \
               --add-header="Cache-Control: max-age=300" \
