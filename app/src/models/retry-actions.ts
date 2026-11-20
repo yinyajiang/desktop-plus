@@ -1,5 +1,5 @@
 import { Repository } from './repository'
-import { CloneOptions } from './clone-options'
+import { CloneRepositoryOptions } from './clone-options'
 import { Branch } from './branch'
 import { Commit, CommitOneLine, ICommitContext } from './commit'
 import { WorkingDirectoryFileChange } from './status'
@@ -49,8 +49,7 @@ export type RetryAction =
       name: string
       url: string
       path: string
-      options: CloneOptions
-      login: string | null
+      options: CloneRepositoryOptions
     }
   | {
       type: RetryActionType.Checkout

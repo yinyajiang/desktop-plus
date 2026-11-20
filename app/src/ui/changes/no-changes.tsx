@@ -2,10 +2,10 @@ import * as React from 'react'
 
 import { encodePathAsUrl } from '../../lib/path'
 import {
-  hasDefaultRemoteUrl,
   isRepositoryWithGitHubRepository,
   Repository,
 } from '../../models/repository'
+import { hasDefaultRemoteUrl } from '../../lib/repository-remote-url'
 import { GitHubRepository } from '../../models/github-repository'
 import { LinkButton } from '../lib/link-button'
 import { MenuIDs } from '../../models/menu-ids'
@@ -293,7 +293,10 @@ export class NoChanges extends React.Component<
 
   private renderViewOnGitHub() {
     const isGitHub = isRepositoryWithGitHubRepository(this.props.repository)
-    const hasOriginUrl = hasDefaultRemoteUrl(this.props.repository)
+    const hasOriginUrl = hasDefaultRemoteUrl(
+      this.props.repository,
+      this.props.repositoryState.remote
+    )
 
     // early exit if not a GitHub repository and no default remote URL set
     if (!isGitHub && !hasOriginUrl) {

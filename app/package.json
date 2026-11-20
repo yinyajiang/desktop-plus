@@ -5,7 +5,7 @@
   "productName": "Desktop Plus",
   "bundleID": "org.desktop-plus.DesktopPlus",
   "companyName": "Desktop Plus",
-  "version": "3.6.10",
+  "version": "3.6.12-beta2",
   "main": "./main.js",
   "repository": {
     "type": "git",
@@ -18,6 +18,16 @@
     "url": "https://desktop-plus.org/"
   },
   "license": "MIT",
+  "allowScripts": {
+    "file:../vendor/desktop-notifications": true,
+    "file:../vendor/desktop-trampoline": true,
+    "file:../vendor/windows-argv-parser": true,
+    "dugite": true,
+    "fs-admin": true,
+    "keytar": true,
+    "registry-js": true,
+    "koffi": false
+  },
   "dependencies": {
     "@floating-ui/react-dom": "^2.1.2",
     "@github/alive-client": "^1.2.0",
@@ -39,7 +49,7 @@
     "desktop-trampoline": "file:../vendor/desktop-trampoline",
     "dexie": "^4.4.6",
     "dompurify": "^3.4.17",
-    "dugite": "^3.3.2",
+    "dugite": "^3.3.3",
     "electron-window-state": "^5.0.3",
     "event-kit": "^2.0.0",
     "focus-trap-react": "^8.1.0",

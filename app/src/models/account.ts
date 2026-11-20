@@ -11,7 +11,7 @@ export const CopilotLicenseTypeNoAccess = 'NO_ACCESS'
  * and a particular account.
  */
 export function accountEquals(x: Account, y: Account) {
-  return x.endpoint === y.endpoint && x.id === y.id && x.login === y.login
+  return x.endpoint === y.endpoint && x.id === y.id
 }
 
 export type AccountAPIType =
@@ -24,6 +24,35 @@ export type AccountAPIType =
 
 export enum UnknownLogin {
   InitialAuthFetch,
+}
+
+/**
+ * Identifies an account by its endpoint and login without carrying any of its
+ * credentials. Use this when an account needs to be referenced from data that
+ * may outlive the operation it was created for (for example retry actions),
+ * and resolve the signed-in `Account` when its token is needed.
+ */
+export interface IAccountIdentity {
+  readonly endpoint: string
+  readonly login: string
+}
+
+/**
+ * Get a key uniquely identifying an account by its endpoint and login.
+ *
+ * Multiple accounts can be signed in to the same endpoint, so the endpoint
+ * alone doesn't identify an account. Logins are compared case-insensitively.
+ */
+export function getAccountKey(account: IAccountIdentity): string {
+  return `${account.endpoint}/users/${account.login}`.toLowerCase()
+}
+
+/** Whether both refer to the same account, by endpoint and login. */
+export function isSameAccount(
+  x: IAccountIdentity,
+  y: IAccountIdentity | null | undefined
+): boolean {
+  return y != null && getAccountKey(x) === getAccountKey(y)
 }
 
 /**
@@ -118,14 +147,21 @@ export class Account {
    * hostname without the protocol and/or path.
    */
   public get friendlyEndpoint(): string {
-    return (this._friendlyEndpoint ??= isDotComAccount(this)
-      ? 'GitHub.com'
-      : new URL(getHTMLURL(this.endpoint)).host)
+    return (this._friendlyEndpoint ??= getFriendlyEndpoint(this.endpoint))
   }
+}
 
-  public get isAnonymous() {
-    return this.login === '' && this.token === ''
-  }
+/**
+ * Get a human-friendly description of an API endpoint.
+ *
+ * The GitHub.com API endpoint returns the string 'GitHub.com' whereas
+ * GitHub Enterprise endpoints return the hostname without the protocol
+ * and/or path.
+ */
+export function getFriendlyEndpoint(endpoint: string): string {
+  return endpoint === getDotComAPIEndpoint()
+    ? 'GitHub.com'
+    : new URL(getHTMLURL(endpoint)).host
 }
 
 /**

@@ -11,8 +11,10 @@ import { updateMenuState as ipcUpdateMenuState } from '../ui/main-process-proxy'
 import { AppMenu, MenuItem } from '../models/app-menu'
 import { hasConflictedFiles } from './status'
 import { findContributionTargetDefaultBranch } from './branch'
-import { hasDefaultRemoteUrl } from '../models/repository'
-import { enableCopilotAppHandoff, enableWorktreeSupport } from './feature-flag'
+import { hasDefaultRemoteUrl } from './repository-remote-url'
+import { enableWorktreeSupport } from './feature-flag'
+import { isAssistedCommitRepositoryLocked } from '../models/assisted-commit-run'
+import { isRepositoryAffectedByAssistedCommit } from './git/repository-operation'
 
 export interface IMenuItemState {
   readonly enabled?: boolean
@@ -135,7 +137,7 @@ const allMenuIds: ReadonlyArray<MenuIDs> = [
   'show-repository-settings',
   'manage-remotes',
   'open-external-editor',
-  ...(enableCopilotAppHandoff() ? (['open-in-copilot-app'] as const) : []),
+  'open-in-copilot-app',
   'open-with-external-editor',
   'remove-repository',
   'new-repository',
@@ -167,8 +169,11 @@ function getRepositoryMenuBuilder(state: IAppState): MenuStateBuilder {
     ? isRepositoryHostedOnGitHub(selectedState.repository)
     : false
   const hasRemoteUrl =
-    selectedState && selectedState.repository instanceof Repository
-      ? hasDefaultRemoteUrl(selectedState.repository)
+    selectedState && selectedState.type === SelectionType.Repository
+      ? hasDefaultRemoteUrl(
+          selectedState.repository,
+          selectedState.state.remote
+        )
       : false
 
   let repositorySelected = false
@@ -261,7 +266,7 @@ function getRepositoryMenuBuilder(state: IAppState): MenuStateBuilder {
     'show-branches-list',
     'show-worktrees-list',
     'open-external-editor',
-    ...(enableCopilotAppHandoff() ? (['open-in-copilot-app'] as const) : []),
+    'open-in-copilot-app',
     'open-with-external-editor',
     'compare-to-branch',
     'toggle-changes-filter',
@@ -422,6 +427,38 @@ function getRepositoryMenuBuilder(state: IAppState): MenuStateBuilder {
     menuStateBuilder.disable('compare-on-github')
     menuStateBuilder.disable('branch-on-github')
     menuStateBuilder.disable('toggle-stashed-changes')
+  }
+
+  if (
+    selectedState?.type === SelectionType.Repository &&
+    (isAssistedCommitRepositoryLocked(
+      selectedState.state.changesState.assistedCommit
+    ) ||
+      isRepositoryAffectedByAssistedCommit(selectedState.repository.path))
+  ) {
+    const disabledIds: ReadonlyArray<MenuIDs> = [
+      'push',
+      'pull',
+      'fetch',
+      'create-branch',
+      'rename-branch',
+      'delete-branch',
+      'merge-branch',
+      'squash-and-merge-branch',
+      'rebase-branch',
+      'update-branch-with-contribution-target-branch',
+      'discard-all-changes',
+      'stash-all-changes',
+      'remove-repository',
+      'show-branches-list',
+      'show-worktrees-list',
+      'create-worktree',
+      'show-repository-settings',
+      'preview-pull-request',
+    ]
+    for (const id of disabledIds) {
+      menuStateBuilder.disable(id)
+    }
   }
 
   return menuStateBuilder

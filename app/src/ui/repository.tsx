@@ -39,6 +39,8 @@ import { Emoji } from '../lib/emoji'
 import { PopupType } from '../models/popup'
 import { Branch } from '../models/branch'
 import { BranchSortOrder } from '../models/branch-sort-order'
+import { isAssistedCommitRepositoryLocked } from '../models/assisted-commit-run'
+import { isRepositoryAffectedByAssistedCommit } from '../lib/git/repository-operation'
 
 interface IRepositoryViewProps {
   readonly repository: Repository
@@ -59,6 +61,7 @@ interface IRepositoryViewProps {
   readonly showDiffMinimap: boolean
   readonly wrapDiffLines: boolean
   readonly fileTreeView: boolean
+  readonly historyFileTreeView: boolean
 
   /** Whether the list/tree and list/graph view mode switches are shown */
   readonly showViewModeSwitches: boolean
@@ -362,7 +365,13 @@ export class RepositoryView extends React.Component<
         issuesStore={this.props.issuesStore}
         availableWidth={availableWidth}
         gitHubUserStore={this.props.gitHubUserStore}
-        isCommitting={this.props.state.isCommitting}
+        isCommitting={
+          this.props.state.isCommitting ||
+          isRepositoryAffectedByAssistedCommit(this.props.repository.path) ||
+          isAssistedCommitRepositoryLocked(
+            this.props.state.changesState.assistedCommit
+          )
+        }
         hookProgress={this.props.state.hookProgress}
         onShowCommitProgress={
           this.props.state.subscribeToCommitOutput
@@ -467,6 +476,12 @@ export class RepositoryView extends React.Component<
         compareListScrollTop={scrollTop}
         tagsToPush={tagsToPush}
         isMultiCommitOperationInProgress={mcos !== null}
+        isAssistedCommitRepositoryLocked={
+          isRepositoryAffectedByAssistedCommit(repository.path) ||
+          isAssistedCommitRepositoryLocked(
+            this.props.state.changesState.assistedCommit
+          )
+        }
         preferAbsoluteDates={this.props.preferAbsoluteDates}
         showConventionalCommitBadges={this.props.showConventionalCommitBadges}
         showViewModeSwitches={this.props.showViewModeSwitches}
@@ -528,6 +543,12 @@ export class RepositoryView extends React.Component<
         tagsToPush={tagsToPush}
         aheadBehindStore={aheadBehindStore}
         isMultiCommitOperationInProgress={mcos !== null}
+        isAssistedCommitRepositoryLocked={
+          isRepositoryAffectedByAssistedCommit(repository.path) ||
+          isAssistedCommitRepositoryLocked(
+            this.props.state.changesState.assistedCommit
+          )
+        }
         askForConfirmationOnCheckoutCommit={
           this.props.askForConfirmationOnCheckoutCommit
         }
@@ -677,7 +698,8 @@ export class RepositoryView extends React.Component<
         showSideBySideDiff={this.props.showSideBySideDiff}
         showDiffMinimap={this.props.showDiffMinimap}
         wrapDiffLines={this.props.wrapDiffLines}
-        fileTreeView={this.props.fileTreeView}
+        fileTreeView={this.props.historyFileTreeView}
+        showViewModeSwitches={this.props.showViewModeSwitches}
         onOpenBinaryFile={this.onOpenBinaryFile}
         onOpenSubmodule={this.onOpenSubmodule}
         onChangeImageDiffType={this.onChangeImageDiffType}
@@ -768,7 +790,13 @@ export class RepositoryView extends React.Component<
           dispatcher={this.props.dispatcher}
           file={selectedFile}
           diff={diff}
-          isCommitting={this.props.state.isCommitting}
+          isCommitting={
+            this.props.state.isCommitting ||
+            isRepositoryAffectedByAssistedCommit(this.props.repository.path) ||
+            isAssistedCommitRepositoryLocked(
+              this.props.state.changesState.assistedCommit
+            )
+          }
           imageDiffType={this.props.imageDiffType}
           hideWhitespaceInDiff={this.props.hideWhitespaceInChangesDiff}
           showSideBySideDiff={this.props.showSideBySideDiff}

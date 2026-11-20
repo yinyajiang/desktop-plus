@@ -3,6 +3,8 @@ import { getKeyForAccount } from '../auth'
 import {
   Account,
   AccountAPIType,
+  getAccountKey,
+  IAccountIdentity,
   isDotComAccount,
   UnknownLogin,
 } from '../../models/account'
@@ -20,6 +22,7 @@ import { assertNever, fatalError } from '../fatal-error'
 import { TypedBaseStore } from './base-store'
 import { isGHE } from '../endpoint-capabilities'
 import { compare, compareDescending } from '../compare'
+import { caseInsensitiveEquals } from '../compare'
 import {
   isRegisteredApiType,
   registerEndpointApiType,
@@ -52,6 +55,7 @@ import {
   PersistedUsers,
   withPersistedUsers,
 } from './legacy-account-credential'
+import { migrateForkAccountIds } from './helpers/migrate-fork-account-assignments'
 
 // Ensure that GitHub.com accounts appear first followed by Enterprise
 // accounts, sorted by the order in which they were added.
@@ -66,9 +70,6 @@ const sortAccounts = (accounts: ReadonlyArray<Account>) =>
         ) || compare(xIx, yIx)
     )
     .map(([account]) => account)
-
-const isSameSignIn = (x: Account, y: Account) =>
-  x.endpoint === y.endpoint && x.login === y.login
 
 /** The data-only interface for storage. */
 interface IEmail {
@@ -162,6 +163,26 @@ const friendlyApiTypeName = (apiType: AccountAPIType) => {
   }
 }
 
+function withLogin(account: Account, login: string): Account {
+  return account.login === login
+    ? account
+    : new Account(
+        login,
+        account.endpoint,
+        account.apiType,
+        account.token,
+        account.emails,
+        account.avatarURL,
+        account.id,
+        account.name,
+        account.plan,
+        account.copilotEndpoint,
+        account.isCopilotDesktopEnabled,
+        account.features,
+        account.copilotLicenseType
+      )
+}
+
 /** The store for logged in accounts. */
 export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
   private dataStore: IDataStore
@@ -179,6 +200,12 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
 
   /** A promise that will resolve when the accounts have been loaded. */
   private loadingPromise: Promise<void>
+
+  /**
+   * The endpoint and login of every account persisted when the store loaded,
+   * including those whose credentials couldn't be read or were unusable.
+   */
+  private persistedIdentities: ReadonlyArray<IAccountIdentity> = []
 
   public constructor(
     dataStore: IDataStore,
@@ -205,12 +232,27 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
       now,
       revokeToken
     )
+    migrateForkAccountIds(dataStore)
     this.loadingPromise = this.loadFromStore()
   }
 
   /**
    * Get the list of accounts in the cache.
    */
+  /**
+   * Get the endpoint and login of every account that was persisted when the
+   * store loaded, whether or not its credentials could be loaded.
+   *
+   * Use this when only the identity matters, such as migrating repository
+   * account assignments, so a locked keychain at launch doesn't lose them.
+   */
+  public async getPersistedIdentities(): Promise<
+    ReadonlyArray<IAccountIdentity>
+  > {
+    await this.loadingPromise
+    return this.persistedIdentities
+  }
+
   public async getAll(): Promise<ReadonlyArray<Account>> {
     await this.loadingPromise
 
@@ -258,8 +300,8 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
   ): Promise<Account> {
     await this.loadingPromise
     const token = await this.credentials.getFreshToken(account, minimumValidity)
-    const current = this.accounts.find(a => isSameSignIn(a, account))
-    if (current === undefined || current.id !== account.id) {
+    const current = this.findAccount(account)
+    if (current === undefined) {
       throw new AccountRequiresSignInError()
     }
     return this.credentials.inheritSession(current, current.withToken(token))
@@ -278,7 +320,7 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
   ): Promise<{ readonly account: Account; readonly release: () => void }> {
     await this.loadingPromise
     const lease = await this.credentials.leaseToken(account, holder)
-    const current = this.accounts.find(a => isSameSignIn(a, account))
+    const current = this.findAccount(account)
     if (current === undefined || current.id !== account.id) {
       lease.release()
       throw new AccountRequiresSignInError()
@@ -359,16 +401,11 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
     return retired
   }
 
-  private onTokenRenewed = (
-    endpoint: string,
-    accessToken: string,
-    login: string
-  ) => {
-    this.pendingLegacyCredentials.delete(
-      getPersistedUserKey({ endpoint, login })
-    )
+  private onTokenRenewed = (account: Account, accessToken: string) => {
+    this.pendingLegacyCredentials.delete(getPersistedUserKey(account))
+    const key = getAccountKey(account)
     this.accounts = this.accounts.map(a =>
-      a.endpoint === endpoint && a.login === login
+      getAccountKey(a) === key
         ? this.credentials.inheritSession(a, a.withToken(accessToken))
         : a
     )
@@ -387,18 +424,27 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
     return true
   }
 
+  /** Add the account, or replace an existing account with the same identity. */
   private onSignedIn = (account: Account) => {
-    const accountsByKey = this.accounts.reduce(
-      (map, x) => map.set(getPersistedUserKey(x), x),
-      new Map<string, Account>()
-    )
-    accountsByKey.set(getPersistedUserKey(account), account)
     this.pendingLegacyCredentials.delete(getPersistedUserKey(account))
     // Even if another window removed this account, the new sign-in is kept.
     this.ownUserKeys.delete(getPersistedUserKey(account))
 
-    this.accounts = sortAccounts([...accountsByKey.values()])
+    const key = getAccountKey(account)
+    const existing = this.accounts.findIndex(a => getAccountKey(a) === key)
+    this.accounts =
+      existing === -1
+        ? sortAccounts([...this.accounts, account])
+        : this.accounts.map((a, i) => (i === existing ? account : a))
     this.save()
+  }
+
+  /** The installed account with the same identity (endpoint, login and id). */
+  private findAccount(account: Account): Account | undefined {
+    const key = getAccountKey(account)
+    return this.accounts.find(
+      a => getAccountKey(a) === key && a.id === account.id
+    )
   }
 
   /**
@@ -437,7 +483,7 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
   }
 
   /**
-   * Add the account to the store.
+   * Add the account, or refresh an existing endpoint and login identity.
    *
    * Returns a new signed-in snapshot. Previous snapshots retain their old session.
    */
@@ -507,27 +553,27 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
    * credentials that rotated while the profile request was in flight.
    */
   private async tryUpdateAccount(account: Account): Promise<void> {
-    const currentToken = this.credentials.trackToken(
-      account.endpoint,
-      account.login
-    )
+    const currentToken = this.credentials.trackToken(account)
     try {
       const fresh = await this.getAccountWithFreshToken(account)
       const updated = await updatedAccount(fresh)
       // The login keys the account's session, secure-storage item and
       // repository associations, so a renamed user keeps the previous login
-      // until they sign in again.
-      if (updated.login !== account.login) {
+      // until they sign in again. A change of case only keeps the stored login
+      // too, since it keys the (case-sensitive) secure-storage item.
+      if (!caseInsensitiveEquals(updated.login, account.login)) {
         log.warn(
           `Account '${account.login}' was renamed to '${updated.login}'. Sign in again to use the new login.`
         )
         return
       }
+      const refreshed = withLogin(updated, account.login)
       const token = currentToken()
       if (token !== null) {
+        const key = getAccountKey(account)
         this.accounts = this.accounts.map(a =>
-          isSameSignIn(a, account)
-            ? this.credentials.inheritSession(a, updated.withToken(token))
+          getAccountKey(a) === key
+            ? this.credentials.inheritSession(a, refreshed.withToken(token))
             : a
         )
         this.save()
@@ -538,12 +584,12 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
   }
 
   private retireAccount(account: Account): Account | null {
-    const current = this.accounts.find(a => isSameSignIn(a, account))
-    if (current === undefined || current.id !== account.id) {
+    const current = this.findAccount(account)
+    if (current === undefined) {
       return null
     }
-    this.credentials.retire(account.endpoint, account.login)
-    this.accounts = this.accounts.filter(a => !isSameSignIn(a, account))
+    this.credentials.retire(current)
+    this.accounts = this.accounts.filter(a => a !== current)
     this.save()
     return current
   }
@@ -621,11 +667,15 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
     this.ownUserKeys = new Set(parsedAccounts.map(getPersistedUserKey))
     const migratedAccounts = this.getMigratedGHEAccounts(parsedAccounts)
     const rawAccounts = migratedAccounts ?? parsedAccounts
+    this.persistedIdentities = rawAccounts.map(({ endpoint, login }) => ({
+      endpoint,
+      login,
+    }))
 
     const needsApiTypeBackfill = rawAccounts.some(a => a.apiType === undefined)
     const hasLegacyCredentials = rawAccounts.some(hasLegacyCredentialFields)
 
-    // Duplicate sign-ins keep the last entry.
+    // Duplicate accounts keep the last entry, like CredentialSessions.restore.
     const accountsByKey = new Map<string, Account>()
     let removedInvalidAccounts = false
     for (const [index, account] of rawAccounts.entries()) {
@@ -672,7 +722,7 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
           credential?.accessToken ?? ''
         )
         const restored = this.credentials.restore(loaded, credential)
-        accountsByKey.set(getPersistedUserKey(restored), restored)
+        accountsByKey.set(getAccountKey(restored), restored)
       } catch (e) {
         log.error(`Error getting token for '${key}'. Skipping.`, e)
         // Kept like another window's entry, so it loads again later.
@@ -706,7 +756,7 @@ export class AccountsStore extends TypedBaseStore<ReadonlyArray<Account>> {
       !persisted.has(getPersistedUserKey(a))
     for (const account of this.accounts.filter(isRemoved)) {
       log.info(`Account '${account.login}' was removed in another window.`)
-      this.credentials.retire(account.endpoint, account.login)
+      this.credentials.retire(account)
     }
     this.accounts = this.accounts.filter(a => !isRemoved(a))
   }

@@ -11,6 +11,7 @@ import {
   RepositoryListGroup,
   getGroupKey,
   getGroupForRepository,
+  getMultiAccountEndpoints,
   applyRepositoryGroupOrder,
   isReorderableRepositoryGroup,
   moveRepositoryGroupInOrder,
@@ -44,6 +45,7 @@ import { IMatch, IMatches } from '../../lib/fuzzy-find'
 import { ILocalRepositoryState, Repository } from '../../models/repository'
 import { normalizePath } from '../../lib/helpers/path'
 import { FoldoutType } from '../../lib/app-state'
+import { Account } from '../../models/account'
 import { Dispatcher } from '../dispatcher'
 import { Button } from '../lib/button'
 import { Octicon, syncClockwise } from '../octicons'
@@ -122,7 +124,22 @@ interface IRepositoriesListProps {
   /** The text entered by the user to filter their repository list */
   readonly filterText: string
 
+  /** The signed-in accounts, used to offer repository account choices. */
+  readonly accounts: ReadonlyArray<Account>
+
+  /** Called when the repository should be assigned to another account. */
+  readonly onChangeRepositoryAccount: (
+    repository: Repository,
+    login: string
+  ) => void
+
+  /** Called when the repository's settings should be shown. */
+  readonly onShowRepositorySettings: (repository: Repository) => void
+
   readonly dispatcher: Dispatcher
+
+  /** Whether to show changed file counts in the repository list */
+  readonly showChangedFileCount: boolean
 
   /** Controls when to show the branch name next to each repository */
   readonly showBranchNameInRepoList: ShowBranchNameInRepoListSetting
@@ -412,22 +429,23 @@ export class RepositoriesList extends React.Component<
 > {
   /**
    * A memoized function for grouping repositories for display
-   * in the FilterList. The group will not be recomputed as long
-   * as the provided list of repositories is equal to the last
-   * time the method was called (reference equality).
+   * in the FilterList. The groups will not be recomputed while the repositories,
+   * local state, recent repositories, and accounts have the same references.
    */
   private getRepositoryGroups = memoizeOne(
     (
       repositories: ReadonlyArray<Repositoryish> | null,
       localRepositoryStateLookup: ReadonlyMap<number, ILocalRepositoryState>,
-      recentRepositories: ReadonlyArray<number>
+      recentRepositories: ReadonlyArray<number>,
+      accounts: ReadonlyArray<Account>
     ) =>
       repositories === null
         ? []
         : groupRepositories(
             repositories,
             localRepositoryStateLookup,
-            recentRepositories
+            recentRepositories,
+            accounts
           )
   )
 
@@ -564,6 +582,7 @@ export class RepositoriesList extends React.Component<
         matches={matches}
         aheadBehind={item.aheadBehind}
         changedFilesCount={item.changedFilesCount}
+        showChangedFileCount={this.props.showChangedFileCount}
         branchName={this.shouldShowBranchName(item) ? item.branchName : null}
         worktree={item.worktree}
       />
@@ -711,23 +730,29 @@ export class RepositoriesList extends React.Component<
   private getGroupLabel(group: RepositoryListGroup) {
     const { kind } = group
     const { displayName } = group
+    if (kind === 'pins') {
+      return 'Pinned'
+    }
+    const qualifier =
+      kind === 'recent' ||
+      kind === 'ssh' ||
+      group.accountLogin === undefined
+        ? ''
+        : ` \u2014 ${
+            group.accountLogin === null
+              ? 'Unassociated'
+              : `@${group.accountLogin}`
+          }`
     if (kind === 'enterprise') {
-      return displayName ?? group.host
+      return displayName ?? group.host + qualifier
     } else if (kind === 'ssh') {
       return displayName ?? 'SSH'
     } else if (kind === 'other') {
-      return displayName ?? 'Other'
+      return displayName ?? 'Other' + qualifier
     } else if (kind === 'dotcom') {
-      const accountLoginSuffix =
-        group.login && group.login !== group.owner.login
-          ? ` (${group.login})`
-          : ''
-      const defaultLabel = group.owner.login + accountLoginSuffix
-      return displayName ?? defaultLabel
+      return displayName ?? group.owner.login + qualifier
     } else if (kind === 'recent') {
       return 'Recent'
-    } else if (kind === 'pins') {
-      return 'Pinned'
     } else {
       assertNever(kind, `Unknown repository group kind ${kind}`)
     }
@@ -1111,8 +1136,16 @@ export class RepositoriesList extends React.Component<
     )
 
     const groupKey = getGroupKey(group)
+    const multiAccountEndpoints = getMultiAccountEndpoints(
+      this.props.repositories,
+      this.props.accounts
+    )
     const preselectedRepositoryIds = repositories
-      .filter(r => getGroupKey(getGroupForRepository(r)) === groupKey)
+      .filter(
+        r =>
+          getGroupKey(getGroupForRepository(r, multiAccountEndpoints)) ===
+          groupKey
+      )
       .map(r => r.id)
 
     this.props.dispatcher.showPopup({
@@ -1236,6 +1269,9 @@ export class RepositoriesList extends React.Component<
       onOpenInExternalEditor: this.props.onOpenInExternalEditor,
       askForConfirmationOnRemoveRepository:
         this.props.askForConfirmationOnRemoveRepository,
+      accounts: this.props.accounts,
+      onChangeRepositoryAccount: this.props.onChangeRepositoryAccount,
+      onShowRepositorySettings: this.props.onShowRepositorySettings,
       externalEditorLabel: this.getExternalEditorLabel(item.repository),
       onChangeRepositoryAlias: this.onChangeRepositoryAlias,
       onRemoveRepositoryAlias: this.onRemoveRepositoryAlias,
@@ -1283,7 +1319,8 @@ export class RepositoriesList extends React.Component<
     let groups = this.getRepositoryGroups(
       repositories,
       this.props.localRepositoryStateLookup,
-      this.props.recentRepositories
+      this.props.recentRepositories,
+      this.props.accounts
     )
     groups = this.getOrderedRepositoryGroups(groups, this.state.groupOrder)
 
@@ -1342,8 +1379,10 @@ export class RepositoriesList extends React.Component<
             repositories: this.props.repositories,
             snoozedRepositories: this.props.snoozedRepositories,
             filterText: this.props.filterText,
+            accounts: this.props.accounts,
             localRepositoryStateLookup: this.props.localRepositoryStateLookup,
             showWorktreesInRepoList: this.props.showWorktreesInRepoList,
+            showChangedFileCount: this.props.showChangedFileCount,
             collapsedGroups: this.state.collapsedGroups,
             groupOrder: this.state.groupOrder,
             draggedGroup: this.state.draggedGroup,

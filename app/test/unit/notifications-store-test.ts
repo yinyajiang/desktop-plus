@@ -58,14 +58,22 @@ describe('NotificationsStore', async () => {
       'repo',
       'github',
       new Owner('owner', endpoint, 1),
-      null,
       1
     )
     const repository = new Repository(
       localRepository.path,
       1,
       gitHubRepository,
-      false
+      false,
+      null,
+      null,
+      null,
+      {},
+      null,
+      false,
+      undefined,
+      undefined,
+      'author'
     )
     const ref = new PullRequestRef('main', commit.sha, gitHubRepository)
     const pullRequest = new PullRequest(
@@ -113,7 +121,13 @@ describe('NotificationsStore', async () => {
     const stats = new StatsStore(statsDb, new TestActivityMonitor(), fakePost)
     const metrics = new TestStatsStore()
     t.mock.method(stats, 'increment', metrics.increment)
-    const store = new NotificationsStore(accounts, alive, coordinator, stats)
+    const store = new NotificationsStore(
+      accounts,
+      alive,
+      coordinator,
+      stats,
+      repositories
+    )
     store.selectRepository(repository)
     t.mock.method(store, 'getChecksForRef', async () => [
       {

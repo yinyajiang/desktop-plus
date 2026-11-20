@@ -70,14 +70,6 @@ function setup(
   return { store, data, secure, revoked }
 }
 
-/** The AppStore fields that `_removeAccount` uses. */
-const removeAccountContext = (accountsStore: AccountsStore) => ({
-  accountsStore,
-  repositoriesStore: {
-    clearGitHubRepositoryLoginForEndpointAndLogin: async () => {},
-  },
-})
-
 describe('OAuth credential persistence', () => {
   it('reads existing access-token entries', () => {
     assert.deepEqual(deserializeAccountCredential('legacy'), {
@@ -649,7 +641,7 @@ describe('Coordinated account token renewal', () => {
       }
     )
     await AppStore.prototype._removeAccount.call(
-      removeAccountContext(store),
+      { accountsStore: store },
       account
     )
     assert.deepEqual(deleted, [renewed.accessToken])
@@ -687,7 +679,7 @@ describe('Coordinated account token renewal', () => {
       throw new Error('Unexpected revocation')
     })
     await AppStore.prototype._removeAccount.call(
-      removeAccountContext(store),
+      { accountsStore: store },
       account
     )
     const replacement = new Account(
@@ -703,7 +695,7 @@ describe('Coordinated account token renewal', () => {
     await store.addAccount(replacement)
     assert.equal(await store.removeAccount(account), null)
     await AppStore.prototype._removeAccount.call(
-      removeAccountContext(store),
+      { accountsStore: store },
       account
     )
     assert.equal(fetch.mock.callCount(), 0)
@@ -994,7 +986,7 @@ describe('Coordinated account token renewal', () => {
     }
   })
 
-  it('loading different logins for an endpoint keeps every account', async () => {
+  it('loading multiple accounts for an endpoint keeps a session for each', async () => {
     const { data, secure } = setup()
     const other = new Account(
       'other',
@@ -1028,19 +1020,19 @@ describe('Coordinated account token renewal', () => {
       async () => true
     )
 
-    // Desktop Plus supports several accounts per endpoint, each with its own
-    // credential session.
-    assert.deepEqual(await store.getAll(), [account, other])
-    assert.equal(
-      await store.resolveToken(other.endpoint, other.token),
-      other.token
-    )
-    assert.equal(renewals, 0)
     assert.equal(
       await store.resolveToken(account.endpoint, account.token),
       renewed.accessToken
     )
+    assert.equal(
+      await store.resolveToken(other.endpoint, other.token),
+      other.token
+    )
     assert.equal(renewals, 1)
+    assert.deepEqual(await store.getAll(), [
+      account.withToken(renewed.accessToken),
+      other,
+    ])
     assert.deepEqual(await store.removeAccount(other), other)
     assert.deepEqual(await store.getAll(), [
       account.withToken(renewed.accessToken),
@@ -1077,7 +1069,24 @@ describe('Coordinated account token renewal', () => {
     )
   })
 
-  it('adding another login never redirects stale clients to another identity', async () => {
+  it('loading duplicate entries for an account keeps only the last session live', async () => {
+    const { data, secure } = setup()
+    data.setItem(
+      'users',
+      JSON.stringify([account.withToken(''), account.withToken('')])
+    )
+    await secure.setItem(getKeyForAccount(account), account.login, 'stored')
+    const store = new AccountsStore(data, secure)
+
+    assert.deepEqual(await store.getAll(), [account.withToken('stored')])
+    assert.deepEqual(
+      await store.removeAccount(account),
+      account.withToken('stored')
+    )
+    assert.deepEqual(await store.getAll(), [])
+  })
+
+  it('signing in to another account on the endpoint keeps the first account', async () => {
     const { store } = setup()
     await store.addAccount(account, rotating)
     const other = new Account(
@@ -1091,7 +1100,7 @@ describe('Coordinated account token renewal', () => {
       'Other'
     )
     await store.addAccount(other)
-    // Desktop Plus keeps both accounts signed in, each with its own token.
+    assert.deepEqual(await store.getAll(), [account, other])
     assert.equal(
       await store.resolveToken(account.endpoint, account.token),
       renewed.accessToken
@@ -1425,7 +1434,6 @@ describe('Several accounts on one endpoint', () => {
       `${other.login}:${other.token}`,
     ])
 
-    assert.equal(await store.resolveToken(account.endpoint, ''), '')
     assert.equal(
       await store.resolveToken(account.endpoint, '', other.login),
       ''
@@ -1486,6 +1494,28 @@ describe('Several accounts on one endpoint', () => {
       accessToken: account.token,
     })
     await expectUsable(store, account, account.token)
+  })
+
+  it('keeps the stored login when the API only changes its case', async t => {
+    const { store, secure } = setup()
+    await store.addAccount(account)
+    t.mock.method(API.prototype, 'fetchAccount', async () => ({
+      ...createMockAPIIdentity({ login: 'OctoCat' }),
+      name: 'Updated Octocat',
+    }))
+    t.mock.method(API.prototype, 'fetchEmails', async () => [])
+    t.mock.method(API.prototype, 'fetchUserCopilotInfo', async () => null)
+    t.mock.method(API.prototype, 'fetchFeatureFlags', async () => [])
+
+    await store.refresh()
+
+    const [refreshed] = await store.getAll()
+    assert.equal(refreshed.login, account.login)
+    assert.equal(refreshed.name, 'Updated Octocat')
+    assert.deepEqual(await stored(secure, account), {
+      accessToken: account.token,
+    })
+    await expectUsable(store, refreshed, account.token)
   })
 
   it('renewing a third-party login leaves another login untouched', async () => {

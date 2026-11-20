@@ -1,9 +1,7 @@
-Desktop Plus v3.6.10-beta1
+Desktop Plus v3.6.12-beta2
 
 Upstream:
-- [GitHub Desktop 3.6.9-beta1 release notes](https://github.com/desktop/desktop/releases/tag/release-3.6.9-beta1)
-- [GitHub Desktop 3.6.9 release notes](https://github.com/desktop/desktop/releases/tag/release-3.6.9)
-- [GitHub Desktop 3.6.10 release notes](https://github.com/desktop/desktop/releases/tag/release-3.6.10)
+- [GitHub Desktop 3.6.12-beta1 release notes](https://github.com/desktop/desktop/releases/tag/release-3.6.12-beta1)
 
 ## Changes and improvements:
 
@@ -13,17 +11,18 @@ Upstream:
 
 - Open the remote repository in your terminal. Ignore files and edit `.gitignore` on the host. A symbolic link is not followed.
 
-- [#303] The "Options > Copilot" section now shows a "Configure custom providers..." link when no models are available.
+- [#313] You can now independently choose different view modes (plain list or folder tree) in the Changes tab and the commit changes list. Previously, the choice of view mode was shared between the two lists.
 
-- [#304] **Windows:** Added experimental auto-update support to the Windows version, because package managers are not widely used on Windows.  
-  You can disable auto-update in "Options > Advanced" if you prefer to use Winget or update manually.
+- Refreshed the visual design of the view-mode toggles to make them less distracting and better fit into GitHub's design system.
 
 ## Fixes:
 
 - The SSH destination is separated with `--`, so a user name that starts with `-` cannot be parsed as an extra ssh option.
 - Conflict-resolution diffs for SSH repositories run on this machine. The comparison uses the local temporary files and does not inherit `core.autocrlf` from the directory Desktop was launched from.
 - macOS x64 and Windows arm64 installers build again. The main and crash processes no longer bundle the Copilot native module (`koffi.node`).
-- [#292] **Linux RPM:** Fixed "GPG check FAILED" error when trying to install the application in Almalinux 9.
+- [#314] Fixed a visual bug that caused some rows in the Changes tab to disappear when the list shrinks while the app is not focused.
+- [#316] Fix high CPU usage when multiple app windows are open and not focused.
+- [#317] Fixed authentication issues when running `git` commands inside a Git hook script.
 
 ## Known limitations:
 

@@ -4,8 +4,7 @@
 import * as Path from 'path'
 import { spawnSync, SpawnSyncOptions } from 'child_process'
 
-import glob from 'glob'
-import { forceUnwrap } from '../app/src/lib/fatal-error'
+import { getAppInstallCommands, getNpmCommand } from './npm'
 
 const root = Path.dirname(__dirname)
 
@@ -28,111 +27,72 @@ const playwrightCliPath = Path.join(
   'cli.js'
 )
 
-/** Check if the caller has set the OFFLINe environment variable */
+/** Check if the caller has set the OFFLINE environment variable */
 function isOffline() {
   return process.env.OFFLINE === '1'
 }
 
-/** Format the arguments to ensure these work offline */
-function getYarnArgs(baseArgs: Array<string>): Array<string> {
-  const args = baseArgs
-
-  if (isOffline()) {
-    args.splice(1, 0, '--offline')
+for (const args of getAppInstallCommands()) {
+  const appInstall = getNpmCommand(args)
+  const result = spawnSync(appInstall.executable, appInstall.args, options)
+  if (result.status !== 0) {
+    console.error(result.error ?? 'Failed to install application dependencies')
+    process.exit(result.status || 1)
   }
-
-  return args
 }
 
-function findYarnVersion(callback: (path: string) => void) {
-  glob('vendor/yarn-*.js', (error, files) => {
-    if (error != null) {
-      throw error
-    }
+// Electron >= 42 no longer downloads its prebuilt binary in its own
+// postinstall; do it eagerly so scripts that read node_modules/electron/dist
+// (e.g. validate-macos-version) keep working without first requiring electron.
+const electronInstallScript = require.resolve('electron/install.js')
+let result = spawnSync(process.execPath, [electronInstallScript], options)
 
-    // this ensures the paths returned by glob are sorted alphabetically
-    files.sort()
-
-    // use the latest version here if multiple are found
-    callback(forceUnwrap('Missing vendored yarn', files.at(-1)))
-  })
+if (result.status !== 0) {
+  process.exit(result.status || 1)
 }
 
-console.log('---> Running post-install script...')
-
-findYarnVersion(path => {
-  const installArgs = getYarnArgs([path, '--cwd', 'app', 'install', '--force'])
-
-  let result = spawnSync('node', installArgs, options)
-
-  if (result.status !== 0) {
-    process.exit(result.status || 1)
-  }
-
-  // Electron >= 42 no longer downloads its prebuilt binary in its own
-  // postinstall; do it eagerly so scripts that read node_modules/electron/dist
-  // (e.g. validate-macos-version) keep working without first requiring electron.
-  const electronInstallScript = require.resolve('electron/install.js')
-  result = spawnSync(process.execPath, [electronInstallScript], options)
-
-  if (result.status !== 0) {
-    console.error('Failed to install app dependencies. Code:', result.status)
-    process.exit(result.status || 1)
-  }
-
-  if (!isOffline()) {
-    result = spawnSync(
-      'git',
-      ['submodule', 'update', '--recursive', '--init'],
-      options
-    )
-
-    if (result.status !== 0) {
-      console.error('Failed to update submodules. Code:', result.status)
-      process.exit(result.status || 1)
-    }
-  }
-
-  result = spawnSync('node', getYarnArgs([path, 'compile:script']), options)
-
-  if (result.status !== 0) {
-    console.error('Failed to compile app dependencies. Code:', result.status)
-    process.exit(result.status || 1)
-  }
-
-  // Capture output here so CI failures include the Playwright-specific error.
+// Offline (Flatpak) builds have no network, so submodules must be fetched beforehand.
+if (!isOffline()) {
   result = spawnSync(
-    process.execPath,
-    [playwrightCliPath, 'install', 'ffmpeg'],
-    captureOutputOptions
+    'git',
+    ['submodule', 'update', '--recursive', '--init'],
+    options
   )
 
   if (result.status !== 0) {
-    console.error(
-      'Error: failed to install Playwright ffmpeg (video recording may not work)',
-      '\nplatform:',
-      process.platform,
-      '\nstatus:',
-      result.status,
-      '\nsignal:',
-      result.signal,
-      '\nerror:',
-      result.error,
-      '\nstdout:',
-      result.stdout,
-      '\nstderr:',
-      result.stderr
-    )
+    process.exit(result.status || 1)
   }
+}
 
-  // electron-installer-redhat isn't installed on Windows (its package.json
-  // restricts `os` to darwin and linux), so patch-package would fail there.
-  if (process.platform !== 'win32') {
-    result = spawnSync('node', getYarnArgs([path, 'patch-package']), options)
+const compileScript = getNpmCommand(['run', 'compile:script'])
+result = spawnSync(compileScript.executable, compileScript.args, options)
 
-    if (result.status !== 0) {
-      console.error('Failed to run patch-package. Code:', result.status)
-      process.exit(result.status || 1)
-    }
-  }
-})
+if (result.status !== 0) {
+  console.error(result.error ?? 'Failed to compile build scripts')
+  process.exit(result.status || 1)
+}
+
+// Capture output here so CI failures include the Playwright-specific error.
+result = spawnSync(
+  process.execPath,
+  [playwrightCliPath, 'install', 'ffmpeg'],
+  captureOutputOptions
+)
+
+if (result.status !== 0) {
+  console.error(
+    'Error: failed to install Playwright ffmpeg (video recording may not work)',
+    '\nplatform:',
+    process.platform,
+    '\nstatus:',
+    result.status,
+    '\nsignal:',
+    result.signal,
+    '\nerror:',
+    result.error,
+    '\nstdout:',
+    result.stdout,
+    '\nstderr:',
+    result.stderr
+  )
+}

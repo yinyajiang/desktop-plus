@@ -19,13 +19,7 @@ const fixtureRepositoryPath = '/tmp/desktop-fixture'
 
 function createRepository(alias: string | null = null) {
   const owner = new Owner('octocat', 'https://api.github.com', 1)
-  const gitHubRepository = new GitHubRepository(
-    'desktop',
-    'github',
-    owner,
-    null,
-    99
-  )
+  const gitHubRepository = new GitHubRepository('desktop', 'github', owner, 99)
 
   return new Repository(
     fixtureRepositoryPath,
@@ -54,6 +48,7 @@ describe('RepositoryListItem', () => {
         matches={noMatches}
         aheadBehind={{ ahead: 2, behind: 1 }}
         changedFilesCount={3}
+        showChangedFileCount={false}
         branchName={'main'}
         worktree={null}
       />
@@ -80,6 +75,7 @@ describe('RepositoryListItem', () => {
         matches={noMatches}
         aheadBehind={null}
         changedFilesCount={0}
+        showChangedFileCount={false}
         branchName={'main'}
         worktree={null}
       />
@@ -101,6 +97,7 @@ describe('RepositoryListItem', () => {
         matches={noMatches}
         aheadBehind={null}
         changedFilesCount={0}
+        showChangedFileCount={false}
         branchName={'main'}
         worktree={null}
       />

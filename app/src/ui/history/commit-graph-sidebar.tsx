@@ -80,6 +80,8 @@ interface ICommitGraphSidebarProps {
   readonly localTags: Map<string, string> | null
   readonly tagsToPush: ReadonlyArray<string> | null
   readonly isMultiCommitOperationInProgress?: boolean
+  /** Whether assisted execution or retained recovery locks this repository. */
+  readonly isAssistedCommitRepositoryLocked?: boolean
   readonly shasToHighlight: ReadonlyArray<string>
   readonly accounts: ReadonlyArray<Account>
   readonly preferAbsoluteDates: boolean
@@ -642,10 +644,14 @@ export class CommitGraphSidebar extends React.Component<
     }
 
     return (
-      <div className="commitGraph-view-mode-switch view-mode-switch button-group">
+      <div
+        className="commitGraph-view-mode-switch view-mode-switch"
+        role="group"
+        aria-label="History view mode"
+      >
         <Button
           size="small"
-          className={classNames('button-group-item', {
+          className={classNames('view-mode-switch-item', {
             selected:
               this.state.commitGraphViewMode === CommitHistoryViewMode.List,
           })}
@@ -660,7 +666,7 @@ export class CommitGraphSidebar extends React.Component<
         </Button>
         <Button
           size="small"
-          className={classNames('button-group-item', {
+          className={classNames('view-mode-switch-item', {
             selected:
               this.state.commitGraphViewMode === CommitHistoryViewMode.Graph,
           })}
@@ -854,6 +860,9 @@ export class CommitGraphSidebar extends React.Component<
         disableSquashing={commitGraphIsTreeMode}
         isMultiCommitOperationInProgress={
           this.props.isMultiCommitOperationInProgress
+        }
+        isAssistedCommitRepositoryLocked={
+          this.props.isAssistedCommitRepositoryLocked
         }
         keyboardReorderData={this.state.keyboardReorderData}
         accounts={this.props.accounts}

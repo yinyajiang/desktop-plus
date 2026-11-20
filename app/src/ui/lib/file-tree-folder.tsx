@@ -24,6 +24,18 @@ export const getFileTreeView = () => getBoolean(fileTreeViewKey, false)
 export const setFileTreeView = (treeView: boolean) =>
   setBoolean(fileTreeViewKey, treeView)
 
+const historyFileTreeViewKey = 'history-file-list-tree-view'
+
+export const getHistoryFileTreeView = () => {
+  if (localStorage.getItem(historyFileTreeViewKey) === null) {
+    setHistoryFileTreeView(getFileTreeView())
+  }
+  return getBoolean(historyFileTreeViewKey, false)
+}
+
+export const setHistoryFileTreeView = (treeView: boolean) =>
+  setBoolean(historyFileTreeViewKey, treeView)
+
 /** Horizontal indentation per tree level, in pixels */
 const FileTreeIndent = 16
 
@@ -146,6 +158,7 @@ export class FileTreeFolder extends React.Component<IFileTreeFolderProps> {
 interface IFileTreeViewToggleProps {
   readonly treeView: boolean
   readonly onChange: (treeView: boolean) => void
+  readonly ariaLabel?: string
 }
 
 /** Buttons switching a file list between a plain list and a folder tree */
@@ -156,10 +169,16 @@ export class FileTreeViewToggle extends React.Component<IFileTreeViewToggleProps
   public render() {
     const { treeView } = this.props
     return (
-      <div className="file-tree-view-toggle view-mode-switch button-group">
+      <div
+        className="file-tree-view-toggle view-mode-switch"
+        role="group"
+        aria-label={this.props.ariaLabel ?? 'File list view mode'}
+      >
         <Button
           size="small"
-          className={classNames('button-group-item', { selected: !treeView })}
+          className={classNames('view-mode-switch-item', {
+            selected: !treeView,
+          })}
           onClick={this.onPathView}
           ariaLabel="Plain list"
           ariaPressed={!treeView}
@@ -169,7 +188,9 @@ export class FileTreeViewToggle extends React.Component<IFileTreeViewToggleProps
         </Button>
         <Button
           size="small"
-          className={classNames('button-group-item', { selected: treeView })}
+          className={classNames('view-mode-switch-item', {
+            selected: treeView,
+          })}
           onClick={this.onTreeView}
           ariaLabel="Folder tree"
           ariaPressed={treeView}

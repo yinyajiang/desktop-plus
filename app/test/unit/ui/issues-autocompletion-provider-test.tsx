@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test'
 import { IIssueHit, IssuesStore } from '../../../src/lib/stores/issues-store'
 import { GitHubRepository } from '../../../src/models/github-repository'
 import { Owner } from '../../../src/models/owner'
+import { Repository } from '../../../src/models/repository'
 import { IssuesAutocompletionProvider } from '../../../src/ui/autocompletion/issues-autocompletion-provider'
 import { Dispatcher } from '../../../src/ui/dispatcher'
 import { TestIssuesDatabase } from '../../helpers/databases/test-issues-database'
@@ -37,12 +38,13 @@ function toDispatcher(dispatcher: TestDispatcher): Dispatcher {
 
 function createProvider() {
   const owner = new Owner('desktop', 'https://api.github.com', 1)
-  const repository = new GitHubRepository('desktop', 'github', owner, null, 99)
+  const repository = new GitHubRepository('desktop', 'github', owner, 99)
 
   return new IssuesAutocompletionProvider(
     new IssuesStore(new TestIssuesDatabase()),
     repository,
-    toDispatcher(new TestDispatcher())
+    toDispatcher(new TestDispatcher()),
+    new Repository('/test/desktop', 1, repository, false)
   )
 }
 

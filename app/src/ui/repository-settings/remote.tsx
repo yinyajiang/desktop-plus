@@ -1,21 +1,15 @@
 import * as React from 'react'
 import { IRemote } from '../../models/remote'
 import { TextBox } from '../lib/text-box'
-import { DialogContent } from '../dialog'
-import { Account } from '../../models/account'
-import { AccountPicker } from '../account-picker'
 import { Repository } from '../../models/repository'
 import { getDotComAPIEndpoint, getEndpointForRepository } from '../../lib/api'
+import { getDefaultRemoteUrl } from '../../lib/repository-remote-url'
 
 interface IRemoteProps {
   /** The remote being shown. */
   readonly remote: IRemote
 
   readonly repository: Repository
-
-  readonly account: Account | null
-
-  readonly accounts: ReadonlyArray<Account>
 
   /** The default branch being shown. */
   readonly defaultBranch: string | undefined
@@ -25,9 +19,6 @@ interface IRemoteProps {
 
   /** The function to call when the default branch is changed by the user. */
   readonly onDefaultBranchChanged: (branch: string) => void
-
-  /** The function to call when the account is changed by the user. */
-  readonly onSelectedAccountChanged: (account: Account) => void
 }
 
 /** The Remote component. */
@@ -35,21 +26,12 @@ export class Remote extends React.Component<IRemoteProps, {}> {
   public render() {
     const { remote, defaultBranch } = this.props
 
-    const repoEndpoint = this.props.repository.url
-      ? getEndpointForRepository(this.props.repository.url)
-      : null
+    const url = getDefaultRemoteUrl(this.props.repository)
+    const repoEndpoint = url ? getEndpointForRepository(url) : null
     const endpoint = repoEndpoint ?? getDotComAPIEndpoint()
-    const noAccount = Account.anonymous()
-
-    const account = this.props.account ?? noAccount
-
-    const accounts: ReadonlyArray<Account> = [
-      noAccount,
-      ...this.props.accounts.filter(a => a.endpoint === endpoint),
-    ]
 
     return (
-      <DialogContent>
+      <>
         <div className="config-row">
           <TextBox
             placeholder="Remote URL"
@@ -71,14 +53,6 @@ export class Remote extends React.Component<IRemoteProps, {}> {
           />
         </div>
         <div className="config-row">
-          <AccountPicker
-            accounts={accounts}
-            openButtonClassName="dialog-preferred-focus"
-            selectedAccount={account}
-            onSelectedAccountChanged={this.props.onSelectedAccountChanged}
-          />
-        </div>
-        <div className="config-row">
           <TextBox
             placeholder="Endpoint"
             readOnly={true}
@@ -86,7 +60,7 @@ export class Remote extends React.Component<IRemoteProps, {}> {
             value={endpoint}
           />
         </div>
-      </DialogContent>
+      </>
     )
   }
 }
