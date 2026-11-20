@@ -5188,6 +5188,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return
     }
 
+    // Worktree discovery must not wait on branch loading. A failed
+    // for-each-ref or slow SSH branch refresh previously delayed the toolbar
+    // list until History or the 20s poll. Start it as soon as status succeeds.
+    const worktreesRefresh = this._refreshWorktrees(repository)
+
     // loadBranches needs the default remote to determine the default branch
     await gitStore.loadRemotes()
     await gitStore.loadBranches()
@@ -5221,7 +5226,7 @@ export class AppStore extends TypedBaseStore<IAppState> {
       gitStore.updateLastFetched(),
       gitStore.loadStashEntries(),
       this._refreshAuthor(repository),
-      this._refreshWorktrees(repository),
+      worktreesRefresh,
       refreshSectionPromise,
       filterAuthorsRefresh,
     ])

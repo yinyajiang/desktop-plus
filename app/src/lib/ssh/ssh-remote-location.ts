@@ -11,6 +11,15 @@ import { posix } from 'path'
  */
 const SshRemotePathPrefix = 'desktop-ssh:'
 
+/**
+ * Namespaced remote POSIX path used by assisted-commit protection.
+ *
+ * These are not local filesystem paths. They keep user/host/port/identity
+ * together with a remote absolute path so shared Git metadata on one SSH
+ * host can overlap without being compared to `path.resolve` under cwd.
+ */
+const SshResourcePathPrefix = 'desktop-ssh-resource:'
+
 /** Connection and working tree for one remote repository. */
 export interface ISshRemoteLocation {
   readonly user: string
@@ -20,6 +29,12 @@ export interface ISshRemoteLocation {
   /** Optional local path to a private key. Null uses the ssh client defaults. */
   readonly identityFile: string | null
   /** Absolute path of the working tree on the remote host. */
+  readonly remotePath: string
+}
+
+/** Parsed {@link SshResourcePathPrefix} identity. */
+export interface ISshResourcePath {
+  readonly connectionId: string
   readonly remotePath: string
 }
 
@@ -87,6 +102,59 @@ export function parseSshRemoteLocation(
 
 export function isSshRemotePath(path: string): boolean {
   return parseSshRemoteLocation(path) !== null
+}
+
+/** Stable id for user/host/port/identity, excluding the remote working tree. */
+export function sshConnectionId(location: ISshRemoteLocation): string {
+  return Buffer.from(
+    JSON.stringify({
+      u: location.user,
+      h: location.hostname,
+      p: location.port,
+      i: location.identityFile,
+    }),
+    'utf8'
+  ).toString('base64url')
+}
+
+/**
+ * Encode a remote absolute path for local protection tables.
+ *
+ * Callers must never pass the result to `fs.realpath` or `path.resolve`.
+ */
+export function formatSshResourcePath(
+  location: ISshRemoteLocation,
+  remoteAbsolutePath: string
+): string {
+  return `${SshResourcePathPrefix}${sshConnectionId(
+    location
+  )}:${normalizeRemotePath(remoteAbsolutePath)}`
+}
+
+export function parseSshResourcePath(path: string): ISshResourcePath | null {
+  if (!path.startsWith(SshResourcePathPrefix)) {
+    return null
+  }
+
+  const body = path.slice(SshResourcePathPrefix.length)
+  const separator = body.indexOf(':')
+  if (separator <= 0 || separator === body.length - 1) {
+    return null
+  }
+
+  return {
+    connectionId: body.slice(0, separator),
+    remotePath: normalizeRemotePath(body.slice(separator + 1)),
+  }
+}
+
+export function isSshResourcePath(path: string): boolean {
+  return parseSshResourcePath(path) !== null
+}
+
+/** Virtual checkout path or namespaced remote resource — never a local path. */
+export function isSshPathIdentity(path: string): boolean {
+  return isSshRemotePath(path) || isSshResourcePath(path)
 }
 
 /** `user@host[:port]:/remote/path`, suitable for display and the clipboard. */

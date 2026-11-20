@@ -13,6 +13,18 @@ async function waitFor(check: () => boolean): Promise<void> {
 }
 
 describe('SSH worktree refresh scheduler', () => {
+  it('requests immediately on start so selection does not wait for the interval', async t => {
+    let calls = 0
+    const scheduler = new SshWorktreeRefreshScheduler(async () => {
+      calls++
+    }, 60_000)
+    t.after(() => scheduler.stop())
+
+    scheduler.start()
+    await waitFor(() => calls === 1)
+    assert.strictEqual(calls, 1)
+  })
+
   it('runs a queued refresh after the in-flight one and stops after stop()', async t => {
     let releaseFirst: () => void = () => {}
     const firstGate = new Promise<void>(resolve => {
@@ -27,8 +39,9 @@ describe('SSH worktree refresh scheduler', () => {
     }, 60_000)
     t.after(() => scheduler.stop())
 
+    // start() itself arms the first in-flight refresh
     scheduler.start()
-    scheduler.request()
+    await waitFor(() => calls === 1)
     scheduler.request()
     scheduler.request()
     assert.strictEqual(calls, 1)
@@ -54,7 +67,6 @@ describe('SSH worktree refresh scheduler', () => {
     t.after(() => scheduler.stop())
 
     scheduler.start()
-    scheduler.request()
     await waitFor(() => calls === 1)
     scheduler.request()
     await waitFor(() => calls === 2)
@@ -75,7 +87,7 @@ describe('SSH worktree refresh scheduler', () => {
     t.after(() => scheduler.stop())
 
     scheduler.start()
-    scheduler.request()
+    await waitFor(() => calls === 1)
     scheduler.request()
     scheduler.stop()
     releaseFirst()

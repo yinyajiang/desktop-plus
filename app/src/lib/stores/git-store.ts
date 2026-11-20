@@ -570,16 +570,25 @@ export class GitStore extends BaseStore {
 
   private async loadBranchesReadCore() {
     const [localAndRemoteBranches, recentBranchNames] = await Promise.all([
-      this.performFailableOperation(() => getBranches(this.repository)) || [],
-      this.performFailableOperation(() =>
-        // Chances are that the recent branches list will contain the default
-        // branch which we filter out in refreshRecentBranches. So grab one
-        // more than we need to account for that.
-        getRecentBranches(this.repository, RecentBranchesLimit + 1)
+      this.performFailableOperation(
+        () => getBranches(this.repository),
+        undefined,
+        'read'
+      ),
+      this.performFailableOperation(
+        () =>
+          // Chances are that the recent branches list will contain the default
+          // branch which we filter out in refreshRecentBranches. So grab one
+          // more than we need to account for that.
+          getRecentBranches(this.repository, RecentBranchesLimit + 1),
+        undefined,
+        'read'
       ),
     ])
 
-    if (!localAndRemoteBranches) {
+    // A failed enumeration keeps the previous list and still emits the error
+    // from performFailableOperation. Do not invent a tip-only branch list.
+    if (localAndRemoteBranches === undefined) {
       return
     }
 
@@ -596,8 +605,10 @@ export class GitStore extends BaseStore {
 
   /** Load all worktrees. */
   public async loadWorktrees() {
-    const discovered = await this.performFailableOperation(() =>
-      listWorktrees(this.repository)
+    const discovered = await this.performFailableOperation(
+      () => listWorktrees(this.repository),
+      undefined,
+      'read'
     )
     // A transport failure leaves the previous list in place. An empty
     // successful list is a real result and replaces it.
@@ -1166,12 +1177,13 @@ export class GitStore extends BaseStore {
    */
   public async performFailableOperation<T>(
     fn: () => Promise<T>,
-    errorMetadata?: IErrorMetadata
+    errorMetadata?: IErrorMetadata,
+    kind: 'read' | 'mutation' = 'mutation'
   ): Promise<T | undefined> {
     try {
       const result = await withRepositoryGitOperation(
         this.repository.path,
-        'mutation',
+        kind,
         fn
       )
       return result

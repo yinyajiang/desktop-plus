@@ -26,14 +26,19 @@ import {
   RemoteFileSymlinkExit,
   formatSshRemoteLabel,
   formatSshRemoteLocation,
+  formatSshResourcePath,
+  isSshPathIdentity,
+  isSshResourcePath,
   parseRemoteFileBundle,
   parseRemoteStat,
   parseSshConnectionInput,
   parseSshRemoteLocation,
+  parseSshResourcePath,
   resolveRemoteGitDir,
   resolveRemotePath,
   resolveRemoteWorkingTreeFile,
   shellQuote,
+  sshConnectionId,
 } from '../../src/lib/ssh/ssh-remote-location'
 import { rebaseInternalStateFromFiles } from '../../src/lib/git/rebase-progress'
 import { planSshTerminalLaunch } from '../../src/lib/ssh/ssh-terminal-launch'
@@ -48,6 +53,16 @@ const location = {
 }
 
 describe('SSH remote locations', () => {
+  it('namespaces remote POSIX paths for assisted-commit protection', () => {
+    const resource = formatSshResourcePath(location, '/home/ada/src/repo/.git/')
+    assert.equal(isSshResourcePath(resource), true)
+    assert.equal(isSshPathIdentity(resource), true)
+    const parsed = parseSshResourcePath(resource)
+    assert.ok(parsed)
+    assert.equal(parsed.connectionId, sshConnectionId(location))
+    assert.equal(parsed.remotePath, '/home/ada/src/repo/.git')
+  })
+
   it('round-trips a connection and remote path', () => {
     const path = formatSshRemoteLocation(location)
     assert.equal(path.startsWith('desktop-ssh:'), true)

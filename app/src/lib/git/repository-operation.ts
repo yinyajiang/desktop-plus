@@ -4,6 +4,14 @@ import { git } from './core'
 import { isErrnoException } from '../errno-exception'
 import { AssistedCommitError } from './assisted-commit/error'
 import { createRepositoryOperationContext } from './repository-operation-context'
+import {
+  formatSshRemoteLocation,
+  formatSshResourcePath,
+  isSshPathIdentity,
+  parseSshRemoteLocation,
+  parseSshResourcePath,
+  sshConnectionId,
+} from '../ssh/ssh-remote-location'
 
 interface IRepositoryOperation {
   readonly kind: 'read' | 'mutation'
@@ -78,18 +86,107 @@ function pendingOperation(
   return { kind, done, complete }
 }
 
+/**
+ * Stable map key for operation and protection tables.
+ *
+ * SSH virtual paths and namespaced remote resources are already canonical
+ * identities. Resolving them under `process.cwd()` would make every SSH
+ * repository look like a child of the local working directory.
+ */
 function pathKey(path: string): string {
+  if (isSshPathIdentity(path)) {
+    return path
+  }
   const absolute = resolve(path)
   return __WIN32__ ? absolute.toLowerCase() : absolute
 }
 
+function remotePathContains(parent: string, child: string): boolean {
+  return (
+    child === parent ||
+    child.startsWith(parent.endsWith('/') ? parent : `${parent}/`)
+  )
+}
+
+function sshIdentityConnectionId(path: string): string | null {
+  const location = parseSshRemoteLocation(path)
+  if (location !== null) {
+    return sshConnectionId(location)
+  }
+  return parseSshResourcePath(path)?.connectionId ?? null
+}
+
+function sshIdentityRemotePath(path: string): string | null {
+  const location = parseSshRemoteLocation(path)
+  if (location !== null) {
+    return location.remotePath
+  }
+  return parseSshResourcePath(path)?.remotePath ?? null
+}
+
+/**
+ * Whether two SSH identities share connection metadata and POSIX ancestry.
+ *
+ * Local paths never overlap SSH identities here — that separation is what
+ * stops cwd assisted-commit protection from disabling an SSH branch list.
+ */
+function sshResourcesOverlap(first: string, second: string): boolean {
+  if (first === second) {
+    return true
+  }
+  const leftConnection = sshIdentityConnectionId(first)
+  const rightConnection = sshIdentityConnectionId(second)
+  if (
+    leftConnection === null ||
+    rightConnection === null ||
+    leftConnection !== rightConnection
+  ) {
+    return false
+  }
+  const leftRemote = sshIdentityRemotePath(first)
+  const rightRemote = sshIdentityRemotePath(second)
+  if (leftRemote === null || rightRemote === null) {
+    return false
+  }
+  return (
+    remotePathContains(leftRemote, rightRemote) ||
+    remotePathContains(rightRemote, leftRemote)
+  )
+}
+
+function resourcesOverlap(first: string, second: string): boolean {
+  const left = pathKey(first)
+  const right = pathKey(second)
+  if (isSshPathIdentity(left) || isSshPathIdentity(right)) {
+    return (
+      isSshPathIdentity(left) &&
+      isSshPathIdentity(right) &&
+      sshResourcesOverlap(left, right)
+    )
+  }
+  return containsPath(left, right) || containsPath(right, left)
+}
+
 function lookup(path: string): IRepositoryOperations | undefined {
   const key = pathKey(path)
-  return (
-    repositories.get(key) ??
-    [...new Set(repositories.values())].find(repository =>
-      [...repository.aliases].some(alias => containsPath(alias, key))
-    )
+  const exact = repositories.get(key)
+  if (exact !== undefined) {
+    return exact
+  }
+
+  // SSH checkout identities are exact keys. Shared remote Git metadata is
+  // coordinated through namespaced resource paths, not local ancestry.
+  if (isSshPathIdentity(path)) {
+    return undefined
+  }
+
+  return [...new Set(repositories.values())].find(repository =>
+    [...repository.aliases].some(alias => {
+      if (isSshPathIdentity(alias)) {
+        return false
+      }
+      return containsPath(alias, key)
+    })
   )
 }
 
@@ -100,12 +197,15 @@ async function repositoryOperations(
   if (existing !== undefined) {
     return existing
   }
-  const canonical = await realpath(path).catch(error => {
-    if (isErrnoException(error) && error.code === 'ENOENT') {
-      return resolve(path)
-    }
-    throw error
-  })
+
+  const canonical = isSshPathIdentity(path)
+    ? path
+    : await realpath(path).catch(error => {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+          return resolve(path)
+        }
+        throw error
+      })
   const key = pathKey(canonical)
   const repository = repositories.get(key) ?? {
     path: canonical,
@@ -182,9 +282,7 @@ function containsPath(parent: string, child: string): boolean {
 
 /** Root-safe ancestry comparison for canonical resource admission and UI guards. */
 export function repositoryPathsOverlap(first: string, second: string): boolean {
-  const left = pathKey(first)
-  const right = pathKey(second)
-  return containsPath(left, right) || containsPath(right, left)
+  return resourcesOverlap(first, second)
 }
 
 /** A filesystem removal must not erase another run's working files or shared metadata. */
@@ -192,17 +290,13 @@ export function assertRepositoryGitDestructionAvailable(path: string): void {
   const key = pathKey(path)
   if (
     [...resourceProtections].some(paths =>
-      [...paths].some(
-        protectedPath =>
-          containsPath(key, protectedPath) || containsPath(protectedPath, key)
-      )
+      [...paths].some(protectedPath => resourcesOverlap(key, protectedPath))
     ) ||
     [...new Set(repositories.values())].some(
       repository =>
         repository.lease !== undefined &&
         [...repository.protectedPaths, ...repository.aliases].some(
-          protectedPath =>
-            containsPath(key, protectedPath) || containsPath(protectedPath, key)
+          protectedPath => resourcesOverlap(key, protectedPath)
         )
     )
   ) {
@@ -218,11 +312,9 @@ export function isRepositoryAffectedByAssistedCommit(path: string): boolean {
   const paths = repositoryResourcePaths.get(pathKey(path)) ?? [path]
   return (
     [...resourceProtections].some(protectedPaths =>
-      paths.some(path =>
-        [...protectedPaths].some(
-          protectedPath =>
-            containsPath(pathKey(path), protectedPath) ||
-            containsPath(protectedPath, pathKey(path))
+      paths.some(candidate =>
+        [...protectedPaths].some(protectedPath =>
+          resourcesOverlap(candidate, protectedPath)
         )
       )
     ) ||
@@ -231,11 +323,7 @@ export function isRepositoryAffectedByAssistedCommit(path: string): boolean {
         repository.lease !== undefined &&
         [...repository.protectedPaths, ...repository.aliases].some(
           protectedPath =>
-            paths.some(
-              path =>
-                containsPath(pathKey(path), protectedPath) ||
-                containsPath(protectedPath, pathKey(path))
-            )
+            paths.some(candidate => resourcesOverlap(candidate, protectedPath))
         )
     )
   )
@@ -273,12 +361,8 @@ export function isRepositoryGitMutationInProgress(path: string): boolean {
     pathKey
   )
   const overlaps = (resources: ReadonlyArray<string>) =>
-    paths.some(path =>
-      resources.some(
-        resource =>
-          containsPath(path, pathKey(resource)) ||
-          containsPath(pathKey(resource), path)
-      )
+    paths.some(candidate =>
+      resources.some(resource => resourcesOverlap(candidate, resource))
     )
   return (
     overlaps([...destructiveOperations.keys()]) ||
@@ -348,6 +432,11 @@ export async function withRepositoryGitDestruction<T>(
 
 /** A not-yet-existing checkout target still belongs to its canonical existing parent. */
 export async function canonicalMutationPath(path: string): Promise<string> {
+  // SSH virtual and resource identities are not local paths. Walking parents
+  // with path.resolve would rewrite them onto the current working directory.
+  if (isSshPathIdentity(path)) {
+    return path
+  }
   try {
     return await realpath(path)
   } catch (error) {
@@ -446,21 +535,43 @@ export async function getAssistedCommitProtectedResources(
       .filter(line => line.startsWith('alternate: '))
       .map(line => parseAlternateObjectDirectory(line.slice(11))),
   ]
+  const location = parseSshRemoteLocation(path)
   const original = [
     path,
     directory.stdout.replace(/\r?\n$/, ''),
     common.stdout.replace(/\r?\n$/, ''),
     ...objectDirectories,
   ]
-  const paths = [
-    ...original,
-    ...(await Promise.all(original.map(value => realpath(value)))),
-  ]
+
+  // SSH rev-parse prints remote POSIX paths. Keep the virtual checkout path
+  // and namespace remote metadata so it never enters local realpath/resolve.
+  const paths =
+    location === null
+      ? [
+          ...original,
+          ...(await Promise.all(original.map(value => realpath(value)))),
+        ]
+      : [
+          path,
+          formatSshRemoteLocation(location),
+          ...original
+            .slice(1)
+            .map(remotePath => formatSshResourcePath(location, remotePath)),
+        ]
+
   repositoryResourcePaths.set(pathKey(path), paths)
-  repositoryResourcePaths.set(pathKey(paths[original.length]), paths)
+  repositoryResourcePaths.set(pathKey(paths[1] ?? path), paths)
+  for (const protectedPath of paths) {
+    repositoryResourcePaths.set(pathKey(protectedPath), paths)
+  }
   return {
     paths,
-    objectDirectories,
+    objectDirectories:
+      location === null
+        ? objectDirectories
+        : objectDirectories.map(remotePath =>
+            formatSshResourcePath(location, remotePath)
+          ),
     // Garbage warnings describe non-object entries, not omitted routing edges.
     objectRoutingDiagnostics: alternates.stderr
       .split(/\r?\n/)
@@ -618,28 +729,22 @@ export function assertAssistedCommitGitResourceAdmission(
         return (
           resourceProtectionOwners.get(resources)?.has(requestedOwner) !==
             true &&
-          [...resources].some(
-            resource =>
-              containsPath(resource, key) || containsPath(key, resource)
-          )
+          [...resources].some(resource => resourcesOverlap(resource, key))
         )
       }) ||
       [...new Set(repositories.values())].some(
         repository =>
           repository !== owner &&
           repository.lease !== undefined &&
-          [...repository.protectedPaths, ...repository.aliases].some(
-            resource =>
-              containsPath(resource, key) || containsPath(key, resource)
+          [...repository.protectedPaths, ...repository.aliases].some(resource =>
+            resourcesOverlap(resource, key)
           )
       ) ||
-      [...destructiveOperations.keys()].some(
-        removing => containsPath(removing, key) || containsPath(key, removing)
+      [...destructiveOperations.keys()].some(removing =>
+        resourcesOverlap(removing, key)
       ) ||
       [...mutationReservations].some(resources =>
-        [...resources].some(
-          resource => containsPath(resource, key) || containsPath(key, resource)
-        )
+        [...resources].some(resource => resourcesOverlap(resource, key))
       )
     ) {
       throw new AssistedCommitError(

@@ -32,6 +32,9 @@ export class SshWorktreeRefreshScheduler {
       this.request()
     }, this.intervalMs)
     this.timer.unref?.()
+    // Selection must discover linked worktrees immediately. The interval only
+    // covers changes made on the host while this repository stays selected.
+    this.request()
   }
 
   public stop(): void {
