@@ -5784,6 +5784,13 @@ export class AppStore extends TypedBaseStore<IAppState> {
    * Persist the main worktree path when a successful list names one and the
    * stored path differs. A failed list never reaches this, so a transport
    * error cannot clear the recorded path.
+   *
+   * The repository must already be loaded and be the current selection. A
+   * repository-list update while nothing is selected picks the first
+   * repository, and that selection starts the branch pruner's referenced
+   * interval. Refreshing any other repository must not do that. Recovery of
+   * a removed linked checkout still records the main path while that
+   * repository is selected, and the open checkout is left unchanged.
    */
   private async rememberMainWorktreePath(
     repository: Repository,
@@ -5793,14 +5800,22 @@ export class AppStore extends TypedBaseStore<IAppState> {
       return
     }
 
-    const main = worktrees.find(worktree => worktree.type === 'main')
-    if (main === undefined) {
+    const selected = this.selectedRepository
+    if (
+      !(selected instanceof Repository) ||
+      selected.id !== repository.id ||
+      selected.path !== repository.path
+    ) {
       return
     }
 
-    const current =
-      this.repositories.find(item => item.id === repository.id) ?? repository
-    if (current.mainWorktreePath === main.path) {
+    const current = this.repositories.find(item => item.id === repository.id)
+    if (current === undefined) {
+      return
+    }
+
+    const main = worktrees.find(worktree => worktree.type === 'main')
+    if (main === undefined || current.mainWorktreePath === main.path) {
       return
     }
 

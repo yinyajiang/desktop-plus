@@ -20,7 +20,7 @@ import { offsetFromNow } from '../../offset-from'
 import { formatRelative } from '../../format-relative'
 
 /** Check if a repo needs to be pruned at least every 4 hours */
-const BackgroundPruneMinimumInterval = 1000 * 60 * 60 * 4
+export const BackgroundPruneMinimumInterval = 1000 * 60 * 60 * 4
 const ReservedRefs = [
   'HEAD',
   'refs/heads/main',
