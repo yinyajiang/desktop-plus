@@ -48,11 +48,10 @@ export class WorktreeDropdown extends React.Component<
     dispatcher.closeFoldout(FoldoutType.Worktree)
 
     if (worktree.isPrunable) {
-      // A missing SSH worktree stays listed until the host prunes it.
-      // Desktop does not run `git worktree remove` or `prune` there.
-      if (repository.sshRemote === null) {
-        dispatcher.requestDeleteWorktree(repository, worktree.path)
-      }
+      // Offer the same confirmation flow as an explicit Delete. SSH never
+      // passes --force, so a host that still requires force to clear stale
+      // metadata surfaces the Git error instead of pruning automatically.
+      dispatcher.requestDeleteWorktree(repository, worktree.path)
       return
     }
 
@@ -70,14 +69,20 @@ export class WorktreeDropdown extends React.Component<
       path: worktree.path,
       isMainWorktree: worktree.type === 'main',
       isLocked: worktree.isLocked,
+      // SSH may remove a linked worktree. Create/rename/move/new-window stay off.
       onRenameWorktree: ssh ? undefined : this.onRenameWorktree,
-      onRemoveWorktree: ssh ? undefined : this.onRemoveWorktree,
+      onRemoveWorktree: this.onRemoveWorktree,
       onOpenInNewWindow: ssh
         ? undefined
         : () => this.onOpenWorktreeInNewWindow(worktree.path),
+      onCopyPath: this.onCopyWorktreePath,
     })
 
     showContextualMenu(items)
+  }
+
+  private onCopyWorktreePath = (path: string) => {
+    this.props.dispatcher.copyPathToClipboard(path)
   }
 
   private onOpenWorktreeInNewWindow = (worktreePath: string) => {
@@ -125,7 +130,8 @@ export class WorktreeDropdown extends React.Component<
       path: currentWorktree.path,
       isMainWorktree: isMain,
       isLocked: currentWorktree.isLocked,
-      onRemoveWorktree: isMain || ssh ? undefined : this.onRemoveWorktree,
+      onRemoveWorktree: isMain ? undefined : this.onRemoveWorktree,
+      onCopyPath: this.onCopyWorktreePath,
     })
 
     if (ssh) {
