@@ -8929,7 +8929,11 @@ export class AppStore extends TypedBaseStore<IAppState> {
     }
 
     try {
-      await removeWorktree(repository.path, worktreePath, options.force)
+      // SSH never force-removes: dirty trees, submodules, etc. keep the Git
+      // refusal and the failed dialog has no force button for SSH hosts.
+      const force =
+        repository.sshRemote !== null ? false : options.force === true
+      await removeWorktree(repository.path, worktreePath, force)
     } catch (e) {
       this._closePopup(PopupType.DeleteWorktree)
       this._closePopup(PopupType.DeleteWorktreeFailed)

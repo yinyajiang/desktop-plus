@@ -17,6 +17,7 @@ import {
   addWorktree,
   removeWorktree,
   moveWorktree,
+  getWorktreeRemoveTarget,
 } from '../../../src/lib/git'
 import { Repository } from '../../../src/models/repository'
 import { getWorktreeDisplayName } from '../../../src/models/worktree'
@@ -579,26 +580,45 @@ describe('git/worktree', () => {
       assert.strictEqual(applyDiscoveredWorktrees(previous, []).length, 0)
     })
 
-    it('does not create, delete, or move an SSH worktree', async () => {
+    it('does not create or move an SSH worktree, and rejects force delete', async () => {
       const repository = new Repository(
         formatSshRemoteLocation(location),
         -1,
         null,
         false
       )
+      const linked = formatSshRemoteLocation({
+        ...location,
+        remotePath: '/srv/repos/linked',
+      })
 
       await assert.rejects(
         () => addWorktree(repository, '/srv/repos/new'),
         /Cannot create a worktree on an SSH host/
       )
       await assert.rejects(
-        () => removeWorktree(repository.path, '/srv/repos/linked'),
-        /Cannot delete a worktree on an SSH host/
+        () => removeWorktree(repository.path, linked, true),
+        /Cannot force-delete a worktree on an SSH host/
       )
       await assert.rejects(
         () =>
           moveWorktree(repository, '/srv/repos/linked', '/srv/repos/renamed'),
         /Cannot move a worktree on an SSH host/
+      )
+    })
+
+    it('maps an SSH virtual worktree path to the remote POSIX remove target', () => {
+      const linked = formatSshRemoteLocation({
+        ...location,
+        remotePath: '/srv/repos/my linked wt',
+      })
+      assert.strictEqual(
+        getWorktreeRemoveTarget(linked),
+        '/srv/repos/my linked wt'
+      )
+      assert.strictEqual(
+        getWorktreeRemoveTarget('/srv/repos/already-posix'),
+        '/srv/repos/already-posix'
       )
     })
   })

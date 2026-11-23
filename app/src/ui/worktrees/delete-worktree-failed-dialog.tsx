@@ -1,5 +1,4 @@
 import * as React from 'react'
-import * as Path from 'path'
 
 import { Dialog, DialogContent, DialogFooter } from '../dialog'
 import { Ref } from '../lib/ref'
@@ -7,7 +6,11 @@ import { OkCancelButtonGroup } from '../dialog/ok-cancel-button-group'
 import { Repository } from '../../models/repository'
 import { getUnderlyingError, isRawGitError } from '../app-error'
 import { Terminal } from '../terminal'
-import { IDeleteWorktreeOptions, WorktreeEntry } from '../../models/worktree'
+import {
+  getWorktreePathDisplayName,
+  IDeleteWorktreeOptions,
+  WorktreeEntry,
+} from '../../models/worktree'
 
 interface IDeleteWorktreeFailedDialogProps {
   readonly repository: Repository
@@ -44,14 +47,15 @@ export class DeleteWorktreeFailedDialog extends React.Component<
   }
 
   public render() {
-    const name = Path.basename(this.props.worktreePath)
+    const name = getWorktreePathDisplayName(this.props.worktreePath)
+    const isSsh = this.props.repository.sshRemote !== null
 
     return (
       <Dialog
         id="delete-worktree-failed"
         title={__DARWIN__ ? 'Delete Worktree Failed' : 'Delete worktree failed'}
         type="error"
-        onSubmit={this.onSubmit}
+        onSubmit={isSsh ? this.onDismissed : this.onSubmit}
         onDismissed={this.onDismissed}
         disabled={this.state.isDeleting}
         loading={this.state.isDeleting}
@@ -64,17 +68,26 @@ export class DeleteWorktreeFailedDialog extends React.Component<
               Deleting the worktree <Ref>{name}</Ref> failed.
             </p>
             {this.renderErrorMessage()}
-            <p>
-              Would you like to forcefully delete the worktree <Ref>{name}</Ref>
-              ?
-            </p>
+            {!isSsh && (
+              <p>
+                Would you like to forcefully delete the worktree{' '}
+                <Ref>{name}</Ref>?
+              </p>
+            )}
           </div>
         </DialogContent>
         <DialogFooter>
-          <OkCancelButtonGroup
-            destructive={true}
-            okButtonText="Forcefully delete"
-          />
+          {isSsh ? (
+            <OkCancelButtonGroup
+              okButtonText="Close"
+              cancelButtonVisible={false}
+            />
+          ) : (
+            <OkCancelButtonGroup
+              destructive={true}
+              okButtonText="Forcefully delete"
+            />
+          )}
         </DialogFooter>
       </Dialog>
     )

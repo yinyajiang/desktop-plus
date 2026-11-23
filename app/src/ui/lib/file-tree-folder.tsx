@@ -5,7 +5,6 @@ import * as octicons from '../octicons/octicons.generated'
 import { Checkbox, CheckboxValue } from './checkbox'
 import { Button } from './button'
 import { getBoolean, setBoolean } from '../../lib/local-storage'
-import * as Path from 'path'
 import { Repository } from '../../models/repository'
 import { Dispatcher } from '../dispatcher'
 import { IMenuItem } from '../../lib/menu-item'
@@ -15,6 +14,7 @@ import {
   CopyRelativeFolderPathLabel,
   RevealInFileManagerLabel,
 } from './context-menu'
+import { getRepositoryClipboardPath } from '../../lib/helpers/path'
 
 const fileTreeViewKey = 'file-list-tree-view'
 
@@ -63,22 +63,34 @@ export function getFolderPathMenuItems(
   dispatcher: Dispatcher,
   path: string
 ): ReadonlyArray<IMenuItem> {
-  return [
+  const items: Array<IMenuItem> = [
     {
       label: CopyFolderPathLabel,
       action: () =>
-        dispatcher.copyPathToClipboard(Path.join(repository.path, path)),
+        dispatcher.copyPathToClipboard(
+          getRepositoryClipboardPath(repository, path, 'full')
+        ),
     },
     {
       label: CopyRelativeFolderPathLabel,
-      action: () => dispatcher.copyPathToClipboard(Path.normalize(path)),
-    },
-    { type: 'separator' },
-    {
-      label: RevealInFileManagerLabel,
-      action: () => revealInFileManager(repository, path),
+      action: () =>
+        dispatcher.copyPathToClipboard(
+          getRepositoryClipboardPath(repository, path, 'relative')
+        ),
     },
   ]
+
+  if (repository.sshRemote === null) {
+    items.push(
+      { type: 'separator' },
+      {
+        label: RevealInFileManagerLabel,
+        action: () => revealInFileManager(repository, path),
+      }
+    )
+  }
+
+  return items
 }
 
 interface IFileTreeFolderProps {

@@ -5,6 +5,7 @@ import * as React from 'react'
 import { Branch, BranchType } from '../../../src/models/branch'
 import { Repository } from '../../../src/models/repository'
 import { IDeleteWorktreeOptions } from '../../../src/models/worktree'
+import { formatSshRemoteLocation } from '../../../src/lib/ssh/ssh-remote-location'
 import { DeleteWorktreeDialog } from '../../../src/ui/worktrees/delete-worktree-dialog'
 import { DeleteWorktreeFailedDialog } from '../../../src/ui/worktrees/delete-worktree-failed-dialog'
 import { fireEvent, render, screen, waitFor } from '../../helpers/ui/render'
@@ -130,5 +131,48 @@ describe('DeleteWorktreeFailedDialog', () => {
 
     await waitFor(() => assert.equal(calls.length, 1))
     assert.deepStrictEqual(calls[0], { ...options, force: true })
+  })
+
+  it('does not offer force delete for an SSH repository', () => {
+    const repo = new Repository(
+      formatSshRemoteLocation({
+        user: 'dev',
+        hostname: 'example.com',
+        port: null,
+        identityFile: null,
+        remotePath: '/srv/repos/main',
+      }),
+      1,
+      null,
+      false
+    )
+    assert.notStrictEqual(repo.sshRemote, null)
+
+    const view = render(
+      <DeleteWorktreeFailedDialog
+        repository={repo}
+        worktreePath={formatSshRemoteLocation({
+          user: 'dev',
+          hostname: 'example.com',
+          port: null,
+          identityFile: null,
+          remotePath: '/srv/repos/feature',
+        })}
+        options={options}
+        error={new Error('dirty worktree')}
+        originalWorktree={null}
+        onDeleteWorktree={async () => {
+          throw new Error('should not force-delete on SSH')
+        }}
+        onSwitchToWorktree={async () => {}}
+        onDismissed={() => {}}
+      />
+    )
+
+    const labels = Array.from(view.container.querySelectorAll('button')).map(
+      b => b.textContent
+    )
+    assert.equal(labels.includes('Forcefully delete'), false)
+    assert.equal(labels.includes('Close'), true)
   })
 })

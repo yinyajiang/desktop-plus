@@ -10,6 +10,7 @@ import { Resizable } from '../resizable'
 import { FileList } from '../history/file-list'
 import { IMenuItem, showContextualMenu } from '../../lib/menu-item'
 import { pathExists } from '../../lib/path-exists'
+import { getRepositoryClipboardPath } from '../../lib/helpers/path'
 import {
   CopyFilePathLabel,
   CopyRelativeFilePathLabel,
@@ -199,9 +200,10 @@ export class PullRequestFilesChanged extends React.Component<
 
     const { repository } = this.props
 
+    const isSsh = repository.sshRemote !== null
     const fullPath = Path.join(repository.path, file.path)
-    const fileExistsOnDisk = await pathExists(fullPath)
-    if (!fileExistsOnDisk) {
+    const fileExistsOnDisk = isSsh ? false : await pathExists(fullPath)
+    if (!isSsh && !fileExistsOnDisk) {
       showContextualMenu([
         {
           label: __DARWIN__
@@ -222,33 +224,46 @@ export class PullRequestFilesChanged extends React.Component<
         ? `Open in ${externalEditorLabel}`
         : DefaultEditorLabel
 
-    const items: IMenuItem[] = [
-      {
-        label: RevealInFileManagerLabel,
-        action: () => revealInFileManager(repository, file.path),
-        enabled: fileExistsOnDisk,
-      },
-      {
-        label: openInExternalEditor,
-        action: () => dispatcher.openInExternalEditor(repository, fullPath),
-        enabled: fileExistsOnDisk,
-      },
-      {
-        label: OpenWithDefaultProgramLabel,
-        action: () => this.onOpenFile(file.path),
-        enabled: isSafeExtension && fileExistsOnDisk,
-      },
-      { type: 'separator' },
+    const items: IMenuItem[] = []
+
+    if (!isSsh) {
+      items.push(
+        {
+          label: RevealInFileManagerLabel,
+          action: () => revealInFileManager(repository, file.path),
+          enabled: fileExistsOnDisk,
+        },
+        {
+          label: openInExternalEditor,
+          action: () => dispatcher.openInExternalEditor(repository, fullPath),
+          enabled: fileExistsOnDisk,
+        },
+        {
+          label: OpenWithDefaultProgramLabel,
+          action: () => this.onOpenFile(file.path),
+          enabled: isSafeExtension && fileExistsOnDisk,
+        },
+        { type: 'separator' }
+      )
+    }
+
+    items.push(
       {
         label: CopyFilePathLabel,
-        action: () => dispatcher.copyPathToClipboard(fullPath),
+        action: () =>
+          dispatcher.copyPathToClipboard(
+            getRepositoryClipboardPath(repository, file.path, 'full')
+          ),
       },
       {
         label: CopyRelativeFilePathLabel,
-        action: () => dispatcher.copyPathToClipboard(Path.normalize(file.path)),
+        action: () =>
+          dispatcher.copyPathToClipboard(
+            getRepositoryClipboardPath(repository, file.path, 'relative')
+          ),
       },
-      { type: 'separator' },
-    ]
+      { type: 'separator' }
+    )
 
     const { nonLocalCommitSHA } = this.props
     const { gitHubRepository } = repository

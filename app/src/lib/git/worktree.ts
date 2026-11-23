@@ -216,17 +216,37 @@ export async function addWorktree(
   await git(args, repository.path, 'addWorktree')
 }
 
+/**
+ * Path argument for `git worktree remove`.
+ *
+ * SSH virtual ids become the remote POSIX path so Git on the host sees a
+ * normal worktree directory, not a `desktop-ssh:` token.
+ */
+export function getWorktreeRemoveTarget(worktreePath: string): string {
+  const remote = parseSshRemoteLocation(worktreePath)
+  return remote !== null ? remote.remotePath : worktreePath
+}
+
 export async function removeWorktree(
   repositoryPath: string,
   worktreePath: string,
   force: boolean = false
 ): Promise<void> {
-  assertLocalWorktreeMutation(repositoryPath, 'delete')
+  // SSH may delete a linked worktree through the existing remote Git channel.
+  // Force removal stays local-only: SSH callers must not pass force.
+  if (isSshRemotePath(repositoryPath)) {
+    if (force) {
+      throw new Error(
+        'Cannot force-delete a worktree on an SSH host from Desktop'
+      )
+    }
+  }
+
   const args = ['worktree', 'remove']
   if (force) {
     args.push('--force')
   }
-  args.push(worktreePath)
+  args.push(getWorktreeRemoveTarget(worktreePath))
 
   await git(args, repositoryPath, 'removeWorktree')
 }

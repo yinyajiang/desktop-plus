@@ -6,6 +6,7 @@ import { recordAssistedCommitMetric } from '../../lib/assisted-commit/metrics'
 import { IMenuItem } from '../../lib/menu-item'
 import { revealInFileManager } from '../../lib/app-shell'
 import { encodePathAsUrl } from '../../lib/path'
+import { getRepositoryClipboardPath } from '../../lib/helpers/path'
 import {
   WorkingDirectoryStatus,
   WorkingDirectoryFileChange,
@@ -982,8 +983,9 @@ export class FilterChangesList extends React.Component<
     return {
       label: CopyFilePathLabel,
       action: () => {
-        const fullPath = Path.join(this.props.repository.path, file.path)
-        this.props.dispatcher.copyPathToClipboard(fullPath)
+        this.props.dispatcher.copyPathToClipboard(
+          getRepositoryClipboardPath(this.props.repository, file.path, 'full')
+        )
       },
     }
   }
@@ -994,7 +996,13 @@ export class FilterChangesList extends React.Component<
     return {
       label: CopyRelativeFilePathLabel,
       action: () =>
-        this.props.dispatcher.copyPathToClipboard(Path.normalize(file.path)),
+        this.props.dispatcher.copyPathToClipboard(
+          getRepositoryClipboardPath(
+            this.props.repository,
+            file.path,
+            'relative'
+          )
+        ),
     }
   }
 
@@ -1004,10 +1012,10 @@ export class FilterChangesList extends React.Component<
     return {
       label: CopySelectedPathsLabel,
       action: () => {
-        const fullPaths = files.map(file =>
-          Path.join(this.props.repository.path, file.path)
+        const paths = files.map(file =>
+          getRepositoryClipboardPath(this.props.repository, file.path, 'full')
         )
-        this.props.dispatcher.copyPathsToClipboard(fullPaths)
+        this.props.dispatcher.copyPathsToClipboard(paths)
       },
     }
   }
@@ -1018,7 +1026,13 @@ export class FilterChangesList extends React.Component<
     return {
       label: CopySelectedRelativePathsLabel,
       action: () => {
-        const paths = files.map(file => Path.normalize(file.path))
+        const paths = files.map(file =>
+          getRepositoryClipboardPath(
+            this.props.repository,
+            file.path,
+            'relative'
+          )
+        )
         this.props.dispatcher.copyPathsToClipboard(paths)
       },
     }

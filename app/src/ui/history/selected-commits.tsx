@@ -36,6 +36,7 @@ import { IChangesetData } from '../../lib/git'
 import { IConstrainedValue } from '../../lib/app-state'
 import { clamp } from '../../lib/clamp'
 import { pathExists } from '../../lib/path-exists'
+import { getRepositoryClipboardPath } from '../../lib/helpers/path'
 import { UnreachableCommitsTab } from './unreachable-commits-dialog'
 import { ExpandableCommitSummary } from './expandable-commit-summary'
 import { DiffHeader } from '../diff/diff-header'
@@ -489,9 +490,10 @@ export class SelectedCommits extends DiffPresentationStateComponent<
       externalEditorLabel,
     } = this.props
 
+    const isSsh = repository.sshRemote !== null
     const fullPath = Path.join(repository.path, file.path)
-    const fileExistsOnDisk = await pathExists(fullPath)
-    if (!fileExistsOnDisk) {
+    const fileExistsOnDisk = isSsh ? false : await pathExists(fullPath)
+    if (!isSsh && !fileExistsOnDisk) {
       showContextualMenu([
         {
           label: __DARWIN__
@@ -523,13 +525,16 @@ export class SelectedCommits extends DiffPresentationStateComponent<
         ? [
             {
               label: CopyFilePathLabel,
-              action: () => this.props.dispatcher.copyPathToClipboard(fullPath),
+              action: () =>
+                this.props.dispatcher.copyPathToClipboard(
+                  getRepositoryClipboardPath(repository, file.path, 'full')
+                ),
             },
             {
               label: CopyRelativeFilePathLabel,
               action: () =>
                 this.props.dispatcher.copyPathToClipboard(
-                  Path.normalize(file.path)
+                  getRepositoryClipboardPath(repository, file.path, 'relative')
                 ),
             },
           ]
@@ -538,38 +543,46 @@ export class SelectedCommits extends DiffPresentationStateComponent<
               label: CopySelectedPathsLabel,
               action: () =>
                 this.props.dispatcher.copyPathsToClipboard(
-                  filesToCopy.map(f => Path.join(repository.path, f.path))
+                  filesToCopy.map(f =>
+                    getRepositoryClipboardPath(repository, f.path, 'full')
+                  )
                 ),
             },
             {
               label: CopySelectedRelativePathsLabel,
               action: () =>
                 this.props.dispatcher.copyPathsToClipboard(
-                  filesToCopy.map(f => Path.normalize(f.path))
+                  filesToCopy.map(f =>
+                    getRepositoryClipboardPath(repository, f.path, 'relative')
+                  )
                 ),
             },
           ]
 
-    const items: IMenuItem[] = [
-      {
-        label: RevealInFileManagerLabel,
-        action: () => revealInFileManager(repository, file.path),
-        enabled: fileExistsOnDisk,
-      },
-      {
-        label: openInExternalEditor,
-        action: () => this.props.onOpenInExternalEditor(file.path),
-        enabled: fileExistsOnDisk,
-      },
-      {
-        label: OpenWithDefaultProgramLabel,
-        action: () => this.onOpenItem(file.path),
-        enabled: isSafeExtension && fileExistsOnDisk,
-      },
-      { type: 'separator' },
-      ...copyPathItems,
-      { type: 'separator' },
-    ]
+    const items: IMenuItem[] = []
+
+    if (!isSsh) {
+      items.push(
+        {
+          label: RevealInFileManagerLabel,
+          action: () => revealInFileManager(repository, file.path),
+          enabled: fileExistsOnDisk,
+        },
+        {
+          label: openInExternalEditor,
+          action: () => this.props.onOpenInExternalEditor(file.path),
+          enabled: fileExistsOnDisk,
+        },
+        {
+          label: OpenWithDefaultProgramLabel,
+          action: () => this.onOpenItem(file.path),
+          enabled: isSafeExtension && fileExistsOnDisk,
+        },
+        { type: 'separator' }
+      )
+    }
+
+    items.push(...copyPathItems, { type: 'separator' })
 
     const gitHubRepository = repository.gitHubRepository
 

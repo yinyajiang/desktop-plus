@@ -249,15 +249,18 @@ export const generateWorktreeListItemContextMenu = (
       {
         label: openInExternalEditor,
         action: () => config.onOpenInExternalEditor(repository, path),
-      },
-      { type: 'separator' },
-      {
-        label: __DARWIN__ ? 'Delete Worktree…' : 'Delete worktree…',
-        action: () => config.onDeleteWorktree(repository, path),
-        enabled: canModify,
       }
     )
   }
+
+  items.push(
+    { type: 'separator' },
+    {
+      label: __DARWIN__ ? 'Delete Worktree…' : 'Delete worktree…',
+      action: () => config.onDeleteWorktree(repository, path),
+      enabled: canModify,
+    }
+  )
 
   return items
 }

@@ -11,6 +11,12 @@ import { SeamlessDiffSwitcher } from '../diff/seamless-diff-switcher'
 import { IConstrainedValue } from '../../lib/app-state'
 import { clamp } from '../../lib/clamp'
 import { getFolderPathMenuItems } from '../lib/file-tree-folder'
+import { IMenuItem, showContextualMenu } from '../../lib/menu-item'
+import {
+  CopyFilePathLabel,
+  CopyRelativeFilePathLabel,
+} from '../lib/context-menu'
+import { getRepositoryClipboardPath } from '../../lib/helpers/path'
 
 interface IStashDiffViewerProps {
   /** The stash in question. */
@@ -103,6 +109,33 @@ export class StashDiffViewer extends React.PureComponent<IStashDiffViewerProps> 
   private getFolderContextMenuItems = (path: string) =>
     getFolderPathMenuItems(this.props.repository, this.props.dispatcher, path)
 
+  private onFileContextMenu = (
+    file: CommittedFileChange,
+    event: React.MouseEvent<HTMLDivElement>
+  ) => {
+    event.preventDefault()
+
+    const { repository, dispatcher } = this.props
+    const items: ReadonlyArray<IMenuItem> = [
+      {
+        label: CopyFilePathLabel,
+        action: () =>
+          dispatcher.copyPathToClipboard(
+            getRepositoryClipboardPath(repository, file.path, 'full')
+          ),
+      },
+      {
+        label: CopyRelativeFilePathLabel,
+        action: () =>
+          dispatcher.copyPathToClipboard(
+            getRepositoryClipboardPath(repository, file.path, 'relative')
+          ),
+      },
+    ]
+
+    showContextualMenu(items)
+  }
+
   private onResize = (width: number) =>
     this.props.dispatcher.setStashedFilesWidth(width)
 
@@ -177,6 +210,7 @@ export class StashDiffViewer extends React.PureComponent<IStashDiffViewerProps> 
               selectedFiles={selectedStashedFile ? [selectedStashedFile] : []}
               availableWidth={availableWidth}
               onRowDoubleClick={this.onRowDoubleClick}
+              onContextMenu={this.onFileContextMenu}
               treeView={this.props.fileTreeView}
               getFolderContextMenuItems={this.getFolderContextMenuItems}
             />
