@@ -6,16 +6,30 @@ import {
   getWindowsFullNugetPackageName,
   getWindowsIdentifierName,
 } from '../../../script/dist-info'
+import {
+  DEFAULT_MOCK_UPDATE_PORT,
+  getMockControlUrl,
+  getMockUpdatePort,
+  getMockUpdateUrl,
+} from './mock-update-port'
 
-/** Fixed port used for the mock update server during e2e tests. */
-export const MOCK_UPDATE_PORT = 51789
-export const MOCK_UPDATE_URL = `http://127.0.0.1:${MOCK_UPDATE_PORT}/update`
+export {
+  DEFAULT_MOCK_UPDATE_PORT,
+  allocateAvailableLoopbackPort,
+  getMockControlUrl,
+  getMockUpdatePort,
+  getMockUpdateUrl,
+  parseMockUpdatePort,
+} from './mock-update-port'
 
-/**
- * URL that e2e tests can use to control the mock server behaviour at runtime
- * via simple GET requests (e.g. `/_control/set-behavior/update-available`).
- */
-export const MOCK_CONTROL_URL = `http://127.0.0.1:${MOCK_UPDATE_PORT}/_control`
+/** @deprecated Prefer getMockUpdatePort(); kept for existing imports. */
+export const MOCK_UPDATE_PORT = DEFAULT_MOCK_UPDATE_PORT
+
+/** @deprecated Prefer getMockUpdateUrl(); kept for existing imports. */
+export const MOCK_UPDATE_URL = getMockUpdateUrl(DEFAULT_MOCK_UPDATE_PORT)
+
+/** @deprecated Prefer getMockControlUrl(); kept for existing imports. */
+export const MOCK_CONTROL_URL = getMockControlUrl(DEFAULT_MOCK_UPDATE_PORT)
 
 const currentWindowsPackageName = getWindowsFullNugetPackageName()
 const nextWindowsPackageName = `${getWindowsIdentifierName()}-99.0.0-full.nupkg`
@@ -39,6 +53,7 @@ export type UpdateBehavior = 'no-update' | 'update-available'
 export interface IMockUpdateServer {
   readonly server: http.Server
   readonly url: string
+  readonly port: number
 
   /** All requests received by the mock server (excluding control requests). */
   readonly requests: Array<{ method: string; url: string }>
@@ -70,12 +85,19 @@ export interface IMockUpdateServer {
  * Squirrel.Mac requires the update zip to satisfy the running app's code
  * signing designated requirements — something only production-signed
  * builds can provide.
+ *
+ * The listen port comes from DESKTOP_E2E_UPDATES_URL when set so it matches
+ * the URL baked into packaged E2E builds. Callers on Windows CI should
+ * allocate a free loopback port before building; a fixed port such as
+ * 51789 often fails with EACCES inside Hyper-V excluded ranges.
  */
 export function createMockUpdateServer(): Promise<IMockUpdateServer> {
   return new Promise((resolve, reject) => {
     let behavior: UpdateBehavior = 'no-update'
     const requests: Array<{ method: string; url: string }> = []
     const sockets = new Set<net.Socket>()
+    const port = getMockUpdatePort()
+    let downloadBaseUrl = getMockUpdateUrl(port).replace(/\/update$/, '')
 
     const server = http.createServer((req, res) => {
       const url = req.url ?? '/'
@@ -172,7 +194,7 @@ export function createMockUpdateServer(): Promise<IMockUpdateServer> {
         // /download/ handler which hangs forever, keeping the app in
         // "downloading" state without completing or erroring.
         const body = JSON.stringify({
-          url: `http://127.0.0.1:${MOCK_UPDATE_PORT}/download/update.zip`,
+          url: `${downloadBaseUrl}/download/update.zip`,
           name: '99.0.0',
           notes: 'E2E test update',
           pub_date: new Date().toISOString(),
@@ -189,15 +211,35 @@ export function createMockUpdateServer(): Promise<IMockUpdateServer> {
       res.end()
     })
 
-    server.on('error', reject)
+    server.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'EACCES' || error.code === 'EADDRINUSE') {
+        reject(
+          new Error(
+            `Failed to bind mock update server on 127.0.0.1:${port} (${error.code}). ` +
+              `On Windows, fixed ports often fall in Hyper-V excluded ranges; ` +
+              `set DESKTOP_E2E_UPDATES_URL to an OS-allocated loopback port before building. ` +
+              `Original error: ${error.message}`
+          )
+        )
+        return
+      }
+
+      reject(error)
+    })
     server.on('connection', socket => {
       sockets.add(socket)
       socket.on('close', () => sockets.delete(socket))
     })
-    server.listen(MOCK_UPDATE_PORT, '127.0.0.1', () => {
+    server.listen(port, '127.0.0.1', () => {
+      const address = server.address()
+      const boundPort =
+        address !== null && typeof address !== 'string' ? address.port : port
+      downloadBaseUrl = `http://127.0.0.1:${boundPort}`
+
       const instance: IMockUpdateServer = {
         server,
-        url: MOCK_UPDATE_URL,
+        url: getMockUpdateUrl(boundPort),
+        port: boundPort,
         requests,
         setBehavior(b: UpdateBehavior) {
           behavior = b

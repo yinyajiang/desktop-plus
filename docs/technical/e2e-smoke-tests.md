@@ -140,6 +140,13 @@ Updater behavior is tested through a local HTTP server defined in
 lets E2E builds point the app at the local mock update server instead of the
 real update service.
 
+CI allocates a free `127.0.0.1` port before the E2E production build
+(`script/allocate-e2e-update-port.mjs`) and exports it as
+`DESKTOP_E2E_UPDATES_URL`. The mock server reads that same URL so the baked
+app URL and the listen port stay aligned. A fixed port such as `51789` often
+fails on Windows GitHub-hosted runners with `listen EACCES` when it falls
+inside Hyper-V / WinNAT excluded port ranges.
+
 ### macOS behavior
 
 For macOS, the mock server serves a Squirrel.Mac-style JSON response.

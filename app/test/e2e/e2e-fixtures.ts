@@ -27,7 +27,7 @@ import { _electron as electron } from 'playwright'
 import { ensureSmokeTestRepository, smokeRepoPath } from './test-helpers'
 import {
   createMockUpdateServer,
-  MOCK_CONTROL_URL,
+  getMockControlUrl,
   type IMockUpdateServer,
   type UpdateBehavior,
 } from './mock-update-server'
@@ -120,7 +120,7 @@ type MockControlAction =
 export function controlMockServer(action: MockControlAction): Promise<string> {
   return new Promise((resolve, reject) => {
     http
-      .get(`${MOCK_CONTROL_URL}/${action}`, res => {
+      .get(`${getMockControlUrl()}/${action}`, res => {
         let data = ''
         res.on('data', (chunk: string) => (data += chunk))
         res.on('end', () => resolve(data))
