@@ -7,6 +7,7 @@ import { formatSshRemoteLocation } from '../../../src/lib/ssh/ssh-remote-locatio
 
 describe('getRepositoryClipboardPath', () => {
   const relative = 'apps/web-base/nuxt.config.ts'
+  const windowsRelative = 'apps\\web-base\\nuxt.config.ts'
 
   it('returns an absolute path for a local repository full copy', () => {
     const repository = new Repository('/Users/me/project', -1, null, false)
@@ -16,10 +17,14 @@ describe('getRepositoryClipboardPath', () => {
     )
   })
 
-  it('returns a normalized relative path for a local relative copy', () => {
+  it('returns a forward-slash relative path for a local relative copy', () => {
     const repository = new Repository('/Users/me/project', -1, null, false)
     assert.strictEqual(
       getRepositoryClipboardPath(repository, relative, 'relative'),
+      relative
+    )
+    assert.strictEqual(
+      getRepositoryClipboardPath(repository, windowsRelative, 'relative'),
       relative
     )
   })
@@ -43,6 +48,10 @@ describe('getRepositoryClipboardPath', () => {
       getRepositoryClipboardPath(repository, relative, 'relative'),
       relative
     )
+    assert.strictEqual(
+      getRepositoryClipboardPath(repository, windowsRelative, 'full'),
+      relative
+    )
     assert.doesNotMatch(
       getRepositoryClipboardPath(repository, relative, 'full'),
       /desktop-ssh/
@@ -50,6 +59,10 @@ describe('getRepositoryClipboardPath', () => {
     assert.doesNotMatch(
       getRepositoryClipboardPath(repository, relative, 'full'),
       /\/home\/dev/
+    )
+    assert.doesNotMatch(
+      getRepositoryClipboardPath(repository, windowsRelative, 'full'),
+      /\\/
     )
   })
 })

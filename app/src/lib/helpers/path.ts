@@ -27,16 +27,16 @@ export function convertToCopyPath(
  *
  * "full" is the absolute local path for ordinary repositories. SSH checkouts
  * have no local absolute path, so full and relative both return the
- * repository-relative path without a `desktop-ssh:` prefix.
+ * repository-relative path without a `desktop-ssh:` prefix. Relative and SSH
+ * paths always use forward slashes (e.g. `apps/web-base/nuxt.config.ts`).
  */
 export function getRepositoryClipboardPath(
   repository: Repository,
   relativePath: string,
   kind: 'full' | 'relative' = 'full'
 ): string {
-  const relative = Path.normalize(relativePath)
   if (kind === 'relative' || repository.sshRemote !== null) {
-    return relative
+    return normalizePath(relativePath)
   }
   return Path.join(repository.path, relativePath)
 }
